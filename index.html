@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#07111f">
+  <title>Meteo Conte · Prototipo Evoluzione Animata</title>
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="preconnect" href="https://tile.openstreetmap.org">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+    <header class="top">
+      <div>
+        <div class="eyebrow">METEO CONTE · PROTOTIPO TECNICO</div>
+        <h1>Evoluzione animata</h1>
+        <p>Radar osservato → adesso → previsione</p>
+      </div>
+      <button id="settingsBtn" class="ghost" type="button">⚙︎</button>
+    </header>
+
+    <section id="settings" class="settings" hidden>
+      <strong>Motore previsione futura</strong>
+      <p>
+        Il prototipo prova prima l'accesso di valutazione Tomorrow.io senza chiave.
+        Se non viene autorizzato, puoi inserire una API key Tomorrow.io: resta salvata solo su questo dispositivo.
+      </p>
+      <div class="key-row">
+        <input id="apiKey" type="password" autocomplete="off" placeholder="API key Tomorrow.io (opzionale)">
+        <button id="saveKey" type="button">Salva</button>
+      </div>
+      <button id="clearKey" class="linkbtn" type="button">Cancella chiave salvata</button>
+    </section>
+
+    <section class="map-card">
+      <div class="map-head">
+        <div>
+          <span id="modeBadge" class="badge observed">OSSERVATO</span>
+          <strong id="frameTime">--:--</strong>
+        </div>
+        <div class="small" id="sourceLabel">Caricamento…</div>
+      </div>
+
+      <div id="map"></div>
+
+      <div class="now-strip">
+        <span>PASSATO</span>
+        <b>● ADESSO</b>
+        <span>FUTURO</span>
+      </div>
+
+      <div class="timeline-wrap">
+        <input id="timeline" type="range" min="0" max="0" value="0" step="1">
+        <div class="timeline-labels">
+          <span id="firstLabel">-2h</span>
+          <span id="nowLabel">adesso</span>
+          <span id="lastLabel">+3h</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="prevBtn" type="button" aria-label="Frame precedente">◀</button>
+        <button id="playBtn" class="primary" type="button">▶ Play</button>
+        <button id="nextBtn" type="button" aria-label="Frame successivo">▶</button>
+        <button id="nowBtn" type="button">Adesso</button>
+      </div>
+    </section>
+
+    <section class="status-card">
+      <div class="status-line">
+        <span class="dot" id="statusDot"></span>
+        <strong id="statusTitle">Preparazione sequenza</strong>
+      </div>
+      <p id="statusText">
+        Il passato usa radar RainViewer. Il futuro usa tile previsionali Tomorrow.io.
+      </p>
+    </section>
+
+    <section class="legend">
+      <span><i class="swatch obs"></i> radar osservato</span>
+      <span><i class="swatch fc"></i> previsione</span>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
