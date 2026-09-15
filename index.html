@@ -1,1 +1,54 @@
-<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Radar Evoluzione v2</title><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><link rel="stylesheet" href="style.css"></head><body><main><small>METEO CONTE · PROTOTIPO V2</small><h1>Evoluzione animata</h1><div class="tabs"><button id="live">LIVE</button><button id="demo" class="on">DEMO PERTURBAZIONE</button></div><section><header><b id="badge">DEMO</b><strong id="time">--:--</strong><span id="src">evento sintetico</span></header><div id="map"></div><div class="labels"><span>PASSATO</span><b>● ADESSO</b><span>FUTURO</span></div><input id="range" type="range" min="0" max="20" value="8"><div class="labels"><span>-2h</span><span>adesso</span><span>+3h</span></div><div class="ctrl"><button id="prev">◀</button><button id="play">▶ Play</button><button id="next">▶</button><button id="now">Adesso</button></div></section><p id="status">DEMO: evento simulato, non è una previsione reale. Premi Play.</p></main><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="app.js"></script></body></html>
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#06101d">
+<title>Meteo Conte · Evoluzione v3</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="./style.css?v=3">
+</head>
+<body>
+<main class="app">
+  <div class="eyebrow">METEO CONTE · PROTOTIPO V3</div>
+  <h1>Evoluzione animata</h1>
+  <p class="sub">Test grafico del movimento della perturbazione</p>
+
+  <div class="tabs">
+    <button id="liveBtn" type="button">LIVE</button>
+    <button id="demoBtn" class="active" type="button">DEMO PERTURBAZIONE</button>
+  </div>
+
+  <section class="card">
+    <div class="head">
+      <span id="badge" class="badge">OSSERVATO DEMO</span>
+      <strong id="clock">--:--</strong>
+      <span class="source">evento sintetico</span>
+    </div>
+
+    <div id="map"></div>
+
+    <div class="phase">
+      <span>PASSATO</span><b>● ADESSO</b><span>FUTURO</span>
+    </div>
+
+    <input id="timeline" type="range" min="0" max="20" value="8" step="1">
+    <div class="ticks"><span>-2h</span><span>adesso</span><span>+3h</span></div>
+
+    <div class="controls">
+      <button id="prevBtn">◀</button>
+      <button id="playBtn" class="play">▶ Play</button>
+      <button id="nextBtn">▶</button>
+      <button id="nowBtn">Adesso</button>
+    </div>
+  </section>
+
+  <section class="info">
+    <div><span class="led"></span><strong id="statusTitle">Demo pronta</strong></div>
+    <p id="status">Premi Play: la perturbazione simulata attraverserà la Romagna. Non rappresenta dati meteo reali.</p>
+  </section>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="./app.js?v=3"></script>
+</body>
+</html>

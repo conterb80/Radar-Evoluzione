@@ -1,1 +1,57 @@
-"use strict";const C=[44.45,12.02],m=L.map("map").setView([44.45,11.7],8);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap"}).addTo(m);L.circleMarker(C,{radius:6,color:"#fff",fillColor:"#55c2ff",fillOpacity:1}).addTo(m).bindTooltip("Borgo Viazza",{permanent:true,direction:"top"});const r=document.querySelector("#range"),tm=document.querySelector("#time"),st=document.querySelector("#status"),play=document.querySelector("#play");let i=8,timer=null,g=null,mode="demo";const base=Date.now()-8*15*60000;function fmt(x){return new Intl.DateTimeFormat("it-IT",{hour:"2-digit",minute:"2-digit"}).format(new Date(x))}function draw(n){i=Math.max(0,Math.min(20,n));r.value=i;tm.textContent=fmt(base+i*15*60000);if(g)m.removeLayer(g);g=L.layerGroup().addTo(m);let d=i-8,lat=44.05+(i*.045),lon=10.55+(i*.13),life=Math.max(.3,Math.sin(Math.PI*i/20));[[0,0,42000,1],[.11,-.18,30000,.8],[-.09,.22,26000,.7],[.17,.08,19000,.6]].forEach((c,k)=>{let s=life*c[3],col=s>.75?"#e52b50":s>.55?"#ff8c32":s>.38?"#ffd34d":"#46c7ff";L.circle([lat+c[0],lon+c[1]],{radius:c[2],stroke:false,fillColor:col,fillOpacity:.18+s*.5}).addTo(g);L.circle([lat+c[0],lon+c[1]],{radius:c[2]*.52,stroke:false,fillColor:col,fillOpacity:.25+s*.52}).addTo(g)});document.querySelector("#badge").textContent=i>8?"PREVISIONE DEMO":"OSSERVATO DEMO";st.textContent=(i>8?"Futuro":"Passato")+" simulato · "+fmt(base+i*15*60000)+" · Serve solo a valutare movimento e fluidità, non è un dato meteo reale."}function stop(){clearInterval(timer);timer=null;play.textContent="▶ Play"}function start(){stop();play.textContent="⏸ Pausa";timer=setInterval(()=>draw(i>=20?0:i+1),700)}play.onclick=()=>timer?stop():start();document.querySelector("#prev").onclick=()=>{stop();draw(i-1)};document.querySelector("#next").onclick=()=>{stop();draw(i+1)};document.querySelector("#now").onclick=()=>{stop();draw(8)};r.oninput=e=>{stop();draw(+e.target.value)};document.querySelector("#demo").onclick=()=>{document.querySelector("#demo").classList.add("on");document.querySelector("#live").classList.remove("on");draw(i)};document.querySelector("#live").onclick=()=>{document.querySelector("#live").classList.add("on");document.querySelector("#demo").classList.remove("on");st.textContent="LIVE resta nel prototipo v1: questa v2 serve a giudicare subito l'animazione della perturbazione. Torna su DEMO per il test.";if(g)m.removeLayer(g)};draw(8);
+"use strict";
+document.addEventListener("DOMContentLoaded", () => {
+  const NOW = 8, MAX = 20, STEP = 15*60*1000;
+  const center=[44.45,12.02];
+  const map=L.map("map",{zoomControl:true}).setView([44.48,11.65],8);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap"}).addTo(map);
+  L.circleMarker(center,{radius:6,weight:2,color:"#fff",fillColor:"#58c7ff",fillOpacity:1}).addTo(map)
+    .bindTooltip("Borgo Viazza",{permanent:true,direction:"top",offset:[0,-7],className:"borgo"});
+
+  const $=id=>document.getElementById(id);
+  const timeline=$("timeline"), clock=$("clock"), badge=$("badge"), play=$("playBtn");
+  let idx=NOW, timer=null, storm=null;
+  const base=Date.now()-NOW*STEP;
+  const fmt=t=>new Intl.DateTimeFormat("it-IT",{hour:"2-digit",minute:"2-digit"}).format(new Date(t));
+
+  function draw(n){
+    idx=Math.max(0,Math.min(MAX,n)); timeline.value=idx; clock.textContent=fmt(base+idx*STEP);
+    const future=idx>NOW;
+    badge.textContent=future?"PREVISIONE DEMO":"OSSERVATO DEMO";
+    badge.className="badge"+(future?" future":"");
+    if(storm) map.removeLayer(storm);
+    storm=L.layerGroup().addTo(map);
+
+    // Sistema perturbato da W/SW verso E/NE, con struttura irregolare a più nuclei.
+    const lat=43.98+idx*0.047, lon=10.20+idx*0.135;
+    const life=Math.max(.32,Math.sin(Math.PI*(idx+2)/(MAX+4)));
+    const cells=[
+      [0,0,43000,1.00],[.13,-.18,32000,.82],[-.10,.23,29000,.72],
+      [.20,.10,22000,.62],[-.18,-.12,19000,.52]
+    ];
+    cells.forEach(([dy,dx,r,k])=>{
+      const s=life*k;
+      const col=s>.72?"#df294d":s>.54?"#ff812f":s>.38?"#ffd24a":"#49c8ff";
+      L.circle([lat+dy,lon+dx],{radius:r,stroke:false,fillColor:col,fillOpacity:.13+s*.43}).addTo(storm);
+      L.circle([lat+dy,lon+dx],{radius:r*.55,stroke:false,fillColor:col,fillOpacity:.20+s*.50}).addTo(storm);
+      L.circle([lat+dy,lon+dx],{radius:r*.25,stroke:false,fillColor:col,fillOpacity:.28+s*.55}).addTo(storm);
+    });
+    $("statusTitle").textContent=future?"Fase futura simulata":"Fase osservata simulata";
+    $("status").textContent=`Frame ${idx+1}/21 · ${fmt(base+idx*STEP)} · La demo serve solo a valutare movimento, timeline e fluidità.`;
+  }
+
+  function stop(){if(timer)clearInterval(timer);timer=null;play.textContent="▶ Play"}
+  function start(){
+    stop(); play.textContent="⏸ Pausa";
+    timer=setInterval(()=>{ draw(idx>=MAX?0:idx+1); },650);
+  }
+
+  play.addEventListener("click",()=>timer?stop():start());
+  $("prevBtn").addEventListener("click",()=>{stop();draw(idx-1)});
+  $("nextBtn").addEventListener("click",()=>{stop();draw(idx+1)});
+  $("nowBtn").addEventListener("click",()=>{stop();draw(NOW)});
+  timeline.addEventListener("input",e=>{stop();draw(Number(e.target.value))});
+  $("demoBtn").addEventListener("click",()=>{ $("demoBtn").classList.add("active");$("liveBtn").classList.remove("active");draw(idx);});
+  $("liveBtn").addEventListener("click",()=>{stop();$("liveBtn").classList.add("active");$("demoBtn").classList.remove("active");$("statusTitle").textContent="LIVE non attivo in questa v3";$("status").textContent="Questa versione serve esclusivamente a validare l'animazione grafica. Il motore LIVE verrà riunito dopo il test.";});
+  draw(NOW);
+  setTimeout(()=>map.invalidateSize(),250);
+});
