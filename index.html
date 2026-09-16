@@ -4,22 +4,26 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#06101d">
-  <title>Meteo Conte · Evoluzione v4.4 ARPAE Test</title>
+  <title>Meteo Conte · Evoluzione v4.5</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=440">
+  <link rel="stylesheet" href="style.css?v=450">
 </head>
 <body>
   <main class="app">
-    <div class="eyebrow">METEO CONTE · RADAR EVOLUZIONE V4.4 · TEST ARPAE NOWCAST</div>
+    <div class="eyebrow">METEO CONTE · RADAR EVOLUZIONE V4.5 · NOWCAST CONTE TEST</div>
     <h1>Evoluzione animata</h1>
-    <p class="sub">Radar osservato → adesso → nowcast ufficiale ARPAE</p>
+    <p class="sub">Radar reale → adesso → estrapolazione 0–90 min</p>
 
     <section class="source-note">
-      <div><strong>FUTURO senza abbonamento</strong><span>ARPAE Emilia-Romagna</span></div>
+      <div>
+        <strong>NOWCAST CONTE</strong>
+        <span>test movimento</span>
+      </div>
       <small>
-        RainViewer resta per l'osservato. Dopo ADESSO viene mostrata la mappa ufficiale
-        ARPAE di evoluzione degli echi: +1h giallo · +2h arancione · +3h rosso.
-        Questa versione serve a verificare accesso e qualità grafica del dato.
+        Il FUTURO non arriva da un modello commerciale: il browser confronta gli ultimi
+        frame RainViewer, stima lo spostamento medio degli echi e proietta l'ultimo radar
+        ogni 10 minuti fino a +90 min. È un'estrapolazione sperimentale, non una previsione
+        di nascita/intensificazione delle celle.
       </small>
     </section>
 
@@ -35,7 +39,7 @@
       <div class="phase">
         <span>PASSATO</span>
         <b>● ADESSO</b>
-        <span>NOWCAST</span>
+        <span>FUTURO</span>
       </div>
 
       <input id="timeline" type="range" min="0" max="0" value="0">
@@ -43,7 +47,7 @@
       <div class="ticks">
         <span>-2h</span>
         <span>adesso</span>
-        <span>+1/+2/+3h</span>
+        <span>+90 min</span>
       </div>
 
       <div class="controls">
@@ -54,23 +58,31 @@
       </div>
     </section>
 
-    <section class="legend" id="arpaeLegend">
-      <strong>ARPAE NOWCAST</strong>
-      <div class="legend-row">
-        <span><i class="dot yellow"></i> +1h</span>
-        <span><i class="dot orange"></i> +2h</span>
-        <span><i class="dot red"></i> +3h</span>
+    <section class="motion">
+      <div class="motion-title">
+        <strong>STIMA MOVIMENTO</strong>
+        <span id="motionState">analisi in corso…</span>
       </div>
-      <small>Le linee rappresentano lo spostamento previsto degli echi radar, non tre immagini radar separate.</small>
+      <div class="motion-grid">
+        <div><span>Direzione</span><b id="motionDir">--</b></div>
+        <div><span>Velocità</span><b id="motionSpeed">--</b></div>
+        <div><span>Affidabilità</span><b id="motionConf">--</b></div>
+      </div>
+      <small id="motionNote">Confronto automatico degli ultimi frame radar nell'area attorno a Borgo Viazza.</small>
     </section>
 
     <section class="info">
       <div><span id="led" class="led"></span><strong id="statusTitle">Avvio</strong></div>
       <p id="status">Caricamento radar reale…</p>
     </section>
+
+    <p class="credits">
+      Radar data by <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a>.
+      Base map © OpenStreetMap.
+    </p>
   </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js?v=440"></script>
+  <script src="app.js?v=450"></script>
 </body>
 </html>
