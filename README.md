@@ -1,18 +1,17 @@
-# Radar Evoluzione v4.3 — WeatherAPI Test
+# Radar Evoluzione v4.3.1 — Diagnostica WeatherAPI
 
-Versione di test derivata dalla v4.2.
+Correzione di test dopo il messaggio “Frame WeatherAPI non disponibile”.
 
-## Modifica principale
-- OSSERVATO: RainViewer invariato.
-- FUTURO: rimosso Tomorrow.io e relativa API key.
-- PREVISIONE: WeatherAPI Weather Maps, precipitazione oraria +1h / +2h / +3h.
-- Nessuna chiave API necessaria per le Weather Maps.
+## Cosa cambia
+- RainViewer OSSERVATO invariato.
+- WeatherAPI FUTURO invariato come sorgente.
+- Prima di caricare ogni previsione, l'app prova una tile su Borgo Viazza e cerca automaticamente uno zoom nativo disponibile (6/5/4/7/8).
+- Il messaggio diagnostico mostra l'ora UTC e lo stamp realmente richiesto.
+- Il Play ora aspetta il completamento del frame prima di avanzare: niente richieste sovrapposte.
+- Se WeatherAPI non pubblica davvero quel frame, il messaggio lo dice chiaramente e specifica che la mappa rimasta visibile è ancora l'ultimo OSSERVATO.
 
-## Test da fare
-1. Verificare che l'OSSERVATO RainViewer continui a funzionare.
-2. Portare la timeline nel FUTURO.
-3. Verificare i tre frame +1h, +2h, +3h.
-4. Premere Play più volte per controllare che non compaia più l'errore HTTP 429 di Tomorrow.io.
-5. Durante una precipitazione reale, confrontare forma/posizione del nucleo tra osservato e previsione.
-
-Fonte tecnica WeatherAPI: https://www.weatherapi.com/docs/ (sezione Weather Maps).
+## Test
+1. Caricare i file nella repository.
+2. Aprire FUTURO con freccia destra, un frame alla volta.
+3. Fotografare il riquadro diagnostico se compare “Frame WeatherAPI non pubblicato” o “Layer WeatherAPI incompleto”.
+4. Se compare “Previsione WeatherAPI caricata”, provare Play fino a +3h.
