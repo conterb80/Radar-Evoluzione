@@ -3,465 +3,338 @@
 document.addEventListener("DOMContentLoaded", async () => {
   const C = [44.45, 12.02];
   const RV_MANIFEST = "https://api.rainviewer.com/public/weather-maps.json";
-
-  // RainViewer free API: max native zoom 7.
   const ANALYSIS_Z = 7;
-  const IMG_SIZE = 512;
-  const SMALL = 128;
+  const ANALYSIS_IMG = 512;
+  const CROP = 360;
+  const SMALL = 180;
   const FUTURE_STEP_MIN = 10;
-  const FUTURE_STEPS = 9; // +90 min
-  const PAIRS_TO_USE = 3;
+  const FUTURE_STEPS = 9;
+  const PAIRS_TO_USE = 5;
 
   const $ = id => document.getElementById(id);
 
-  const map = L.map("map", { zoomControl: true }).setView([44.45, 11.85], 8);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 18,
-    attribution: "© OpenStreetMap"
+  const map = L.map("map", {zoomControl:true}).setView([44.45,11.85],8);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+    maxZoom:18,attribution:"© OpenStreetMap"
   }).addTo(map);
 
-  L.circleMarker(C, {
-    radius: 6,
-    weight: 2,
-    color: "#fff",
-    fillColor: "#58c7ff",
-    fillOpacity: 1
-  }).addTo(map).bindTooltip("Borgo Viazza", {
-    permanent: true,
-    direction: "top",
-    offset: [0,-7],
-    className: "borgo"
-  });
+  map.createPane("forecastPane");
+  const forecastPane = map.getPane("forecastPane");
+  forecastPane.style.zIndex = "250";
+  forecastPane.style.pointerEvents = "none";
 
-  let rvHost = "";
-  let past = [];
-  let frames = [];
-  let idx = 0;
-  let nowIdx = 0;
-  let layer = null;
-  let playing = false;
-  let renderToken = 0;
+  L.circleMarker(C,{radius:6,weight:2,color:"#fff",fillColor:"#58c7ff",fillOpacity:1})
+    .addTo(map).bindTooltip("Borgo Viazza",{permanent:true,direction:"top",offset:[0,-7],className:"borgo"});
 
-  let motion = null;
-  let latestForecastImageURL = null;
-  let latestForecastImageObjectURL = null;
+  let rvHost="", past=[], frames=[], idx=0, nowIdx=0;
+  let observedLayer=null, forecastLayer=null, playing=false, renderToken=0;
+  let motion=null;
 
-  const fmt = t => new Intl.DateTimeFormat("it-IT", {
-    hour: "2-digit", minute: "2-digit"
-  }).format(new Date(t));
+  const fmt=t=>new Intl.DateTimeFormat("it-IT",{hour:"2-digit",minute:"2-digit"}).format(new Date(t));
 
-  function status(kind, title, text) {
-    $("led").className = "led " + kind;
-    $("statusTitle").textContent = title;
-    $("status").textContent = text;
+  function status(kind,title,text){
+    $("led").className="led "+kind;
+    $("statusTitle").textContent=title;
+    $("status").textContent=text;
   }
 
-  function setMotionUI(state, dir="--", speed="--", conf="--", note="") {
-    $("motionState").textContent = state;
-    $("motionDir").textContent = dir;
-    $("motionSpeed").textContent = speed;
-    $("motionConf").textContent = conf;
-    if (note) $("motionNote").textContent = note;
+  function setMotionUI(state,dir="--",speed="--",conf="--",note=""){
+    $("motionState").textContent=state;
+    $("motionDir").textContent=dir;
+    $("motionSpeed").textContent=speed;
+    $("motionConf").textContent=conf;
+    if(note)$("motionNote").textContent=note;
   }
 
-  function coordImageUrl(frame) {
-    return `${rvHost}${frame.path}/${IMG_SIZE}/${ANALYSIS_Z}/${C[0]}/${C[1]}/2/1_1.png`;
+  function coordImageUrl(frame){
+    return `${rvHost}${frame.path}/${ANALYSIS_IMG}/${ANALYSIS_Z}/${C[0]}/${C[1]}/2/1_1.png`;
   }
 
-  async function fetchImageBitmap(url, timeoutMs=8000) {
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), timeoutMs);
-
-    try {
-      const r = await fetch(url, {
-        mode: "cors",
-        cache: "no-store",
-        signal: ac.signal
+  async function loadImage(url,timeoutMs=8000){
+    const ac=new AbortController();
+    const timer=setTimeout(()=>ac.abort(),timeoutMs);
+    try{
+      const r=await fetch(url,{mode:"cors",cache:"no-store",signal:ac.signal});
+      if(!r.ok)throw new Error(`HTTP ${r.status}`);
+      const blob=await r.blob();
+      const objectURL=URL.createObjectURL(blob);
+      const img=new Image();
+      img.decoding="async";
+      await new Promise((resolve,reject)=>{
+        img.onload=resolve;
+        img.onerror=()=>reject(new Error("PNG non decodificato"));
+        img.src=objectURL;
       });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-
-      const blob = await r.blob();
-      if (!blob.type.startsWith("image/")) {
-        throw new Error(`risposta non immagine (${blob.type || "tipo sconosciuto"})`);
-      }
-
-      const objectURL = URL.createObjectURL(blob);
-      const img = new Image();
-      img.decoding = "async";
-
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = () => reject(new Error("decodifica PNG fallita"));
-        img.src = objectURL;
-      });
-
-      return { img, objectURL };
-    } finally {
-      clearTimeout(timer);
-    }
+      return {img,objectURL};
+    }finally{clearTimeout(timer)}
   }
 
-  function makeField(img) {
-    const c = document.createElement("canvas");
-    c.width = SMALL;
-    c.height = SMALL;
-    const ctx = c.getContext("2d", { willReadFrequently:true });
+  function makeField(img){
+    const src=document.createElement("canvas");
+    src.width=ANALYSIS_IMG; src.height=ANALYSIS_IMG;
+    const sctx=src.getContext("2d",{willReadFrequently:true});
+    sctx.drawImage(img,0,0,ANALYSIS_IMG,ANALYSIS_IMG);
 
-    // Ridimensionamento: preserva il pattern generale, abbastanza per stimare il moto.
-    ctx.drawImage(img, 0, 0, SMALL, SMALL);
+    const crop=document.createElement("canvas");
+    crop.width=SMALL; crop.height=SMALL;
+    const ctx=crop.getContext("2d",{willReadFrequently:true});
 
-    let rgba;
-    try {
-      rgba = ctx.getImageData(0,0,SMALL,SMALL).data;
-    } catch (e) {
-      throw new Error("lettura pixel bloccata dal browser/CORS");
-    }
+    const o=(ANALYSIS_IMG-CROP)/2;
+    ctx.drawImage(src,o,o,CROP,CROP,0,0,SMALL,SMALL);
 
-    const f = new Uint8Array(SMALL * SMALL);
-    let active = 0;
+    const rgba=ctx.getImageData(0,0,SMALL,SMALL).data;
+    const f=new Uint8Array(SMALL*SMALL);
+    const active=[];
 
-    for (let i=0, p=0; i<rgba.length; i+=4, p++) {
-      const a = rgba[i+3];
-
-      // Le tile radar hanno sfondo trasparente. Soglia morbida per tenere
-      // anche gli echi deboli ma scartare quasi tutta la trasparenza.
-      if (a > 28) {
-        f[p] = 1;
-        active++;
+    for(let i=0,p=0;i<rgba.length;i+=4,p++){
+      const a=rgba[i+3];
+      if(a>36){
+        f[p]=1;
+        active.push(p);
       }
     }
-
-    return { f, active };
+    return {f,active};
   }
 
-  function scoreShift(a, b, dx, dy) {
-    let inter = 0;
-    let union = 0;
+  function shiftScore(A,B,dx,dy){
+    if(!A.active.length||!B.active.length)return 0;
+    let hit=0;
+    const bf=B.f;
 
-    const x0 = Math.max(0, -dx);
-    const x1 = Math.min(SMALL, SMALL - dx);
-    const y0 = Math.max(0, -dy);
-    const y1 = Math.min(SMALL, SMALL - dy);
+    for(const p of A.active){
+      const y=(p/SMALL)|0;
+      const x=p-y*SMALL;
+      const xx=x+dx, yy=y+dy;
+      if(xx<0||xx>=SMALL||yy<0||yy>=SMALL)continue;
+      if(bf[yy*SMALL+xx])hit++;
+    }
+    return hit/Math.sqrt(A.active.length*B.active.length);
+  }
 
-    for (let y=y0; y<y1; y++) {
-      const by = y + dy;
-      let i1 = y * SMALL + x0;
-      let i2 = by * SMALL + (x0 + dx);
+  function estimatePair(A,B){
+    const MAX=14;
+    const zero=shiftScore(A,B,0,0);
+    let best={dx:0,dy:0,score:zero};
 
-      for (let x=x0; x<x1; x++, i1++, i2++) {
-        const va = a[i1];
-        const vb = b[i2];
-        if (va || vb) {
-          union++;
-          if (va && vb) inter++;
-        }
+    for(let dy=-MAX;dy<=MAX;dy++){
+      for(let dx=-MAX;dx<=MAX;dx++){
+        const s=shiftScore(A,B,dx,dy)-0.00008*(Math.abs(dx)+Math.abs(dy));
+        if(s>best.score)best={dx,dy,score:s};
       }
     }
-
-    return union ? inter / union : 0;
+    return {dx:best.dx,dy:best.dy,score:best.score,zero,gain:best.score-zero};
   }
 
-  function estimatePair(prevField, currField) {
-    // +/- 12 px sul campo 128x128 = +/- 48 px sull'immagine 512.
-    const MAX = 12;
-    let best = { dx:0, dy:0, score:-1 };
-
-    for (let dy=-MAX; dy<=MAX; dy++) {
-      for (let dx=-MAX; dx<=MAX; dx++) {
-        const s = scoreShift(prevField, currField, dx, dy);
-
-        // Piccolissima penalità per evitare shift enormi a parità di score.
-        const adjusted = s - 0.00015 * (Math.abs(dx) + Math.abs(dy));
-        if (adjusted > best.score) {
-          best = { dx, dy, score:adjusted, rawScore:s };
-        }
-      }
-    }
-
-    return best;
+  function median(values){
+    const a=values.slice().sort((x,y)=>x-y);
+    const m=Math.floor(a.length/2);
+    return a.length%2?a[m]:(a[m-1]+a[m])/2;
   }
 
-  function median(values) {
-    const a = values.slice().sort((x,y)=>x-y);
-    const m = Math.floor(a.length/2);
-    return a.length % 2 ? a[m] : (a[m-1]+a[m])/2;
+  function dirName(deg){
+    const names=["N","NE","E","SE","S","SO","O","NO"];
+    return names[Math.round(deg/45)%8];
   }
 
-  function bearingName(deg) {
-    const names = ["N","NE","E","SE","S","SO","O","NO"];
-    return names[Math.round(deg / 45) % 8];
+  function pxMotionStats(dxPx10,dyPx10,quality){
+    const mpp=156543.03392*Math.cos(C[0]*Math.PI/180)/(2**ANALYSIS_Z);
+    const east=dxPx10*mpp, north=-dyPx10*mpp;
+    const dist10=Math.hypot(east,north);
+    const speedKmh=dist10*6/1000;
+    const bearing=(Math.atan2(east,north)*180/Math.PI+360)%360;
+    return {speedKmh,bearing,name:dirName(bearing),quality};
   }
 
-  function motionStats(dxPx10, dyPx10, confidence) {
-    const mpp = 156543.03392 * Math.cos(C[0]*Math.PI/180) / (2 ** ANALYSIS_Z);
-    const east = dxPx10 * mpp;
-    const north = -dyPx10 * mpp;
-    const distM10 = Math.hypot(east, north);
-    const speedKmh = distM10 * 6 / 1000;
-
-    let bearing = (Math.atan2(east, north) * 180/Math.PI + 360) % 360;
-    if (distM10 < 100) bearing = 0;
-
-    return {
-      speedKmh,
-      bearing,
-      bearingName: distM10 < 100 ? "quasi fermo" : bearingName(bearing),
-      confidence
-    };
-  }
-
-  async function analyseMotion() {
+  async function analyseMotion(){
     setMotionUI("analisi in corso…");
+    const recent=past.slice(-(PAIRS_TO_USE+1));
+    const loaded=[];
 
-    const recent = past.slice(-(PAIRS_TO_USE + 1));
-    if (recent.length < 2) throw new Error("pochi frame RainViewer");
-
-    const loaded = [];
-    try {
-      for (const f of recent) {
-        const item = await fetchImageBitmap(coordImageUrl(f));
-        const field = makeField(item.img);
-        loaded.push({ ...item, field, frame:f });
+    try{
+      for(const f of recent){
+        const item=await loadImage(coordImageUrl(f));
+        loaded.push({...item,field:makeField(item.img),frame:f});
       }
 
-      const shifts = [];
-      for (let i=1; i<loaded.length; i++) {
-        const a = loaded[i-1];
-        const b = loaded[i];
+      const pairs=[];
+      for(let i=1;i<loaded.length;i++){
+        const A=loaded[i-1],B=loaded[i];
+        if(A.field.active.length<25||B.field.active.length<25)continue;
 
-        if (a.field.active < 20 || b.field.active < 20) continue;
+        const e=estimatePair(A.field,B.field);
+        const dtMin=Math.max(1,(B.frame.time-A.frame.time)/60);
 
-        const est = estimatePair(a.field.f, b.field.f);
-
-        const dtMin = Math.max(
-          1,
-          (b.frame.time - a.frame.time) / 60
-        );
-
-        // estimatePair lavora a 128 px. Riporta a 512 px e normalizza a 10 minuti.
-        const scale = IMG_SIZE / SMALL;
-        const norm = FUTURE_STEP_MIN / dtMin;
-
-        shifts.push({
-          dx: est.dx * scale * norm,
-          dy: est.dy * scale * norm,
-          score: est.rawScore
+        // SMALL rappresenta CROP px originali.
+        const toOriginal=CROP/SMALL;
+        const norm=FUTURE_STEP_MIN/dtMin;
+        pairs.push({
+          dx:e.dx*toOriginal*norm,
+          dy:e.dy*toOriginal*norm,
+          score:e.score,
+          gain:e.gain
         });
       }
 
-      if (!shifts.length) {
-        throw new Error("echi insufficienti nell'area analizzata");
+      if(!pairs.length)throw new Error("echi locali insufficienti");
+
+      const dx=median(pairs.map(p=>p.dx));
+      const dy=median(pairs.map(p=>p.dy));
+      const score=pairs.reduce((s,p)=>s+p.score,0)/pairs.length;
+      const gain=pairs.reduce((s,p)=>s+p.gain,0)/pairs.length;
+
+      const quality=Math.max(0,Math.min(1,score*0.7+Math.max(0,gain)*3));
+      const stats=pxMotionStats(dx,dy,quality);
+
+      // Se lo spostamento è sotto la risoluzione utile, non diciamo più
+      // "alta affidabilità / 0 km/h": lo segnaliamo come non risolto.
+      const unresolved = stats.speedKmh < 4 || gain < 0.008;
+
+      if(unresolved){
+        motion={
+          dxPx10:0,dyPx10:0,speedKmh:0,bearing:0,name:"non risolto",
+          quality:Math.min(quality,.28),unresolved:true
+        };
+        setMotionUI(
+          "moto non risolto",
+          "incerto",
+          "< 4 km/h",
+          "bassa",
+          `Gli ultimi ${pairs.length+1} frame sono molto simili nel settore locale: non c'è uno spostamento abbastanza netto da proiettare con affidabilità. La v4.6 evita quindi di dichiarare falsamente “0 km/h, affidabilità alta”.`
+        );
+      }else{
+        motion={dxPx10:dx,dyPx10:dy,...stats,unresolved:false};
+        const conf=quality>=.58?"alta":quality>=.34?"media":"bassa";
+        setMotionUI(
+          "pronta",
+          `${stats.name} · ${Math.round(stats.bearing)}°`,
+          `${Math.round(stats.speedKmh)} km/h`,
+          conf,
+          `Stima locale da ${pairs.length+1} frame. Il FUTURO sposta l'intero ultimo layer radar; intensificazione o dissolvimento delle celle non sono previste da questa estrapolazione.`
+        );
       }
-
-      const dx = median(shifts.map(s=>s.dx));
-      const dy = median(shifts.map(s=>s.dy));
-      const conf = shifts.reduce((s,x)=>s+x.score,0) / shifts.length;
-
-      // Usa l'ultima immagine già scaricata come sorgente per il FUTURO.
-      const last = loaded[loaded.length-1];
-      latestForecastImageURL = last.objectURL;
-      latestForecastImageObjectURL = last.objectURL;
-
-      // Non revocare l'ultimo object URL; serve al layer forecast.
-      for (let i=0; i<loaded.length-1; i++) {
-        URL.revokeObjectURL(loaded[i].objectURL);
-      }
-
-      const stats = motionStats(dx, dy, conf);
-
-      motion = {
-        dxPx10: dx,
-        dyPx10: dy,
-        confidence: conf,
-        ...stats
-      };
-
-      const confLabel =
-        conf >= .55 ? "alta" :
-        conf >= .32 ? "media" :
-        "bassa";
-
-      setMotionUI(
-        "pronta",
-        `${stats.bearingName} · ${Math.round(stats.bearing)}°`,
-        `${Math.round(stats.speedKmh)} km/h`,
-        confLabel,
-        `Stima ottenuta da ${shifts.length+1} frame recenti. Nel FUTURO spostiamo l'ultimo eco radar mantenendone forma e intensità: eventuale sviluppo o dissolvimento delle celle non è prevedibile da questa prova.`
-      );
-
-      return motion;
-    } catch (e) {
-      for (const x of loaded) {
-        try { URL.revokeObjectURL(x.objectURL); } catch (_) {}
-      }
-      throw e;
+    }finally{
+      for(const x of loaded){try{URL.revokeObjectURL(x.objectURL)}catch(_){}}
     }
+    return motion;
   }
 
-  function worldSize(z) {
-    return 256 * (2 ** z);
+  function removeObserved(){
+    if(observedLayer){try{map.removeLayer(observedLayer)}catch(_){} observedLayer=null}
   }
 
-  function project(lat, lon, z) {
-    const w = worldSize(z);
-    const x = (lon + 180) / 360 * w;
-    const sin = Math.sin(lat * Math.PI/180);
-    const y = (0.5 - Math.log((1+sin)/(1-sin)) / (4*Math.PI)) * w;
-    return [x,y];
+  function removeForecast(){
+    if(forecastLayer){try{map.removeLayer(forecastLayer)}catch(_){} forecastLayer=null}
+    forecastPane.style.marginLeft="0px";
+    forecastPane.style.marginTop="0px";
   }
 
-  function unproject(x, y, z) {
-    const w = worldSize(z);
-    const lon = x / w * 360 - 180;
-    const n = Math.PI - 2*Math.PI*y/w;
-    const lat = 180/Math.PI * Math.atan(Math.sinh(n));
-    return [lat,lon];
-  }
-
-  function imageBounds(shiftX=0, shiftY=0) {
-    const [cx,cy] = project(C[0], C[1], ANALYSIS_Z);
-    const half = IMG_SIZE / 2;
-
-    const nw = unproject(cx-half+shiftX, cy-half+shiftY, ANALYSIS_Z);
-    const se = unproject(cx+half+shiftX, cy+half+shiftY, ANALYSIS_Z);
-
-    return L.latLngBounds(nw, se);
-  }
-
-  function removeLayer() {
-    if (!layer) return;
-    try { map.removeLayer(layer); } catch (_) {}
-    layer = null;
-  }
-
-  function showObserved(frame) {
-    return new Promise(resolve => {
-      const n = L.tileLayer(`${rvHost}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`, {
-        maxZoom:18,
-        maxNativeZoom:7,
-        opacity:0,
-        keepBuffer:1,
-        updateWhenZooming:false,
-        updateWhenIdle:true
+  function showObserved(f){
+    removeForecast();
+    return new Promise(resolve=>{
+      const n=L.tileLayer(`${rvHost}${f.path}/256/{z}/{x}/{y}/2/1_1.png`,{
+        maxZoom:18,maxNativeZoom:7,opacity:0,keepBuffer:3,updateWhenZooming:false,updateWhenIdle:true
       }).addTo(map);
-
-      let loaded=0, done=false;
-
-      const finish = ok => {
-        if (done) return;
-        done=true;
-
-        if (ok) {
-          removeLayer();
-          layer=n;
-          n.setOpacity(.72);
-        } else {
-          try { map.removeLayer(n); } catch (_) {}
-        }
+      let loaded=0,done=false;
+      const finish=ok=>{
+        if(done)return;done=true;
+        if(ok){
+          removeObserved(); observedLayer=n; n.setOpacity(.72);
+        }else{try{map.removeLayer(n)}catch(_){}}
         resolve(ok);
       };
-
       n.on("tileload",()=>loaded++);
       n.once("load",()=>finish(loaded>0));
       setTimeout(()=>finish(loaded>0),6500);
     });
   }
 
-  function showForecast(frame) {
-    if (!motion || !latestForecastImageURL) return false;
+  function ensureForecastLayer(){
+    if(forecastLayer)return;
+    const last=past[past.length-1];
+    forecastLayer=L.tileLayer(`${rvHost}${last.path}/256/{z}/{x}/{y}/2/1_1.png`,{
+      pane:"forecastPane",
+      maxZoom:18,maxNativeZoom:7,opacity:.72,keepBuffer:5,
+      updateWhenZooming:false,updateWhenIdle:true
+    }).addTo(map);
+  }
 
-    const shiftX = motion.dxPx10 * frame.step;
-    const shiftY = motion.dyPx10 * frame.step;
+  function applyForecastShift(step){
+    ensureForecastLayer();
+    removeObserved();
 
-    const n = L.imageOverlay(
-      latestForecastImageURL,
-      imageBounds(shiftX, shiftY),
-      {
-        opacity:.74,
-        interactive:false
-      }
-    );
+    if(!motion || motion.unresolved){
+      forecastPane.style.marginLeft="0px";
+      forecastPane.style.marginTop="0px";
+      return false;
+    }
 
-    removeLayer();
-    layer=n;
-    n.addTo(map);
+    const scale=2**(map.getZoom()-ANALYSIS_Z);
+    const pxX=motion.dxPx10*step*scale;
+    const pxY=motion.dyPx10*step*scale;
+
+    forecastPane.style.marginLeft=`${pxX}px`;
+    forecastPane.style.marginTop=`${pxY}px`;
     return true;
   }
 
-  async function show(n) {
-    const myToken = ++renderToken;
+  async function show(n){
+    const token=++renderToken;
+    idx=Math.max(0,Math.min(frames.length-1,n));
+    $("timeline").value=idx;
+    const f=frames[idx];
 
-    idx = Math.max(0, Math.min(frames.length-1, n));
-    $("timeline").value = idx;
+    if(f.kind==="forecast"){
+      $("badge").textContent="PREVISIONE";
+      $("badge").className="badge future";
+      $("clock").textContent=fmt(f.t);
+      $("source").textContent=`Nowcast Conte · +${f.step*10}m`;
 
-    const f = frames[idx];
+      const moved=applyForecastShift(f.step);
 
-    if (f.kind === "forecast") {
-      $("badge").textContent = "PREVISIONE";
-      $("badge").className = "badge future";
-      $("clock").textContent = fmt(f.t);
-      $("source").textContent = `Nowcast Conte · +${f.step*FUTURE_STEP_MIN}m`;
-
-      if (!motion) {
-        status(
-          "warn",
-          "Nowcast non disponibile",
-          "La stima del movimento non è riuscita. L'OSSERVATO RainViewer resta utilizzabile."
-        );
+      if(!motion){
+        status("warn","Nowcast non disponibile","La stima del movimento non è pronta.");
         return false;
       }
 
-      const ok = showForecast(f);
+      if(motion.unresolved){
+        status(
+          "warn",
+          "Movimento locale non risolto",
+          `+${f.step*10} min: mostro l'ultimo radar reale senza spostarlo, perché i frame recenti non danno un vettore locale abbastanza affidabile.`
+        );
+        return true;
+      }
 
       status(
-        ok ? "ok" : "warn",
-        ok ? "Estrapolazione caricata" : "Estrapolazione non disponibile",
-        ok
-          ? `+${f.step*FUTURE_STEP_MIN} min · moto stimato ${motion.bearingName}, ${Math.round(motion.speedKmh)} km/h. Questo frame è proiettato dall'ultimo radar reale.`
-          : "Impossibile visualizzare il frame futuro."
+        "ok",
+        "Estrapolazione caricata",
+        `+${f.step*10} min · intero layer radar spostato verso ${motion.name} a circa ${Math.round(motion.speedKmh)} km/h.`
       );
-
-      return ok;
+      return moved;
     }
 
-    $("badge").textContent = "OSSERVATO";
-    $("badge").className = "badge";
-    $("clock").textContent = fmt(f.t);
-    $("source").textContent = "RainViewer · radar";
+    $("badge").textContent="OSSERVATO";
+    $("badge").className="badge";
+    $("clock").textContent=fmt(f.t);
+    $("source").textContent="RainViewer · radar";
 
-    status("", "Caricamento radar", `Frame radar ${fmt(f.t)}…`);
-    const ok = await showObserved(f);
-
-    if (myToken !== renderToken) return false;
-
-    status(
-      ok ? "ok" : "warn",
-      ok ? "Radar reale caricato" : "Radar non disponibile",
-      ok
-        ? `Osservazione radar delle ${fmt(f.t)}.`
-        : "Il frame RainViewer non ha risposto."
-    );
-
+    status("","Caricamento radar",`Frame radar ${fmt(f.t)}…`);
+    const ok=await showObserved(f);
+    if(token!==renderToken)return false;
+    status(ok?"ok":"warn",ok?"Radar reale caricato":"Radar non disponibile",ok?`Osservazione radar delle ${fmt(f.t)}.`:"Il frame RainViewer non ha risposto.");
     return ok;
   }
 
-  function stop() {
-    playing=false;
-    $("play").textContent="▶ Play";
-  }
+  function stop(){playing=false;$("play").textContent="▶ Play"}
 
-  async function start() {
-    if (playing) return;
-    playing=true;
-    $("play").textContent="⏸ Pausa";
-
-    while (playing) {
-      const next = idx >= frames.length-1 ? 0 : idx+1;
+  async function start(){
+    if(playing)return;
+    playing=true;$("play").textContent="⏸ Pausa";
+    while(playing){
+      const next=idx>=frames.length-1?0:idx+1;
       await show(next);
-      if (!playing) break;
-
-      const delay = frames[idx] && frames[idx].kind==="forecast" ? 700 : 850;
-      await new Promise(r=>setTimeout(r,delay));
+      if(!playing)break;
+      await new Promise(r=>setTimeout(r,frames[idx]?.kind==="forecast"?700:850));
     }
   }
 
@@ -471,83 +344,58 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("now").onclick=()=>{stop();show(nowIdx)};
   $("timeline").oninput=e=>{stop();show(+e.target.value)};
 
-  try {
-    status("", "Avvio", "Carico gli ultimi radar RainViewer…");
+  map.on("zoomend",()=>{
+    if(frames[idx]?.kind==="forecast")applyForecastShift(frames[idx].step);
+  });
 
-    const r = await fetch(RV_MANIFEST, { cache:"no-store" });
-    if (!r.ok) throw new Error(`RainViewer HTTP ${r.status}`);
+  try{
+    const r=await fetch(RV_MANIFEST,{cache:"no-store"});
+    if(!r.ok)throw new Error(`HTTP ${r.status}`);
+    const d=await r.json();
+    rvHost=d.host||"https://tilecache.rainviewer.com";
 
-    const d = await r.json();
-    rvHost = d.host || "https://tilecache.rainviewer.com";
+    const raw=d.radar&&Array.isArray(d.radar.past)?d.radar.past:[];
+    if(!raw.length)throw new Error("nessun frame RainViewer");
 
-    past = d.radar && Array.isArray(d.radar.past) ? d.radar.past : [];
-    if (!past.length) throw new Error("nessun frame RainViewer");
+    past=raw.map(x=>({kind:"observed",t:x.time*1000,time:x.time,path:x.path}));
+    frames=past.map(x=>({...x}));
+    nowIdx=frames.length-1;
 
-    // Mantieni il formato usato dal resto dell'app.
-    past = past.map(x => ({
-      kind:"observed",
-      t:x.time*1000,
-      time:x.time,
-      path:x.path
-    }));
-
-    frames = past.map(x=>({ ...x }));
-    nowIdx = frames.length-1;
-
-    const base = frames[nowIdx].t;
-    for (let step=1; step<=FUTURE_STEPS; step++) {
-      frames.push({
-        kind:"forecast",
-        step,
-        t:base + step*FUTURE_STEP_MIN*60*1000
-      });
+    const base=frames[nowIdx].t;
+    for(let step=1;step<=FUTURE_STEPS;step++){
+      frames.push({kind:"forecast",step,t:base+step*FUTURE_STEP_MIN*60000});
     }
 
-    $("timeline").max = frames.length-1;
-    idx=nowIdx;
-    $("timeline").value=idx;
-
+    $("timeline").max=frames.length-1;
+    idx=nowIdx;$("timeline").value=idx;
     await show(idx);
     setTimeout(()=>map.invalidateSize(),200);
 
-    // L'analisi avviene dopo che l'OSSERVATO è già visibile.
-    try {
-      status("", "Analisi movimento", "Confronto gli ultimi frame radar per costruire il nowcast…");
+    try{
+      status("","Analisi movimento locale","Confronto gli ultimi frame vicino a Borgo Viazza…");
       await analyseMotion();
-      status(
-        "ok",
-        "Nowcast Conte pronto",
-        `Stima ${motion.bearingName} · ${Math.round(motion.speedKmh)} km/h. Premi ▶ oppure la freccia destra per vedere +10…+90 minuti.`
-      );
-    } catch (e) {
+
+      if(motion.unresolved){
+        status(
+          "warn",
+          "Radar pronto · moto locale incerto",
+          "La copertura completa è pronta, ma in questo momento il piccolo eco locale non mostra uno spostamento abbastanza netto da proiettare in modo credibile."
+        );
+      }else{
+        status(
+          "ok",
+          "Nowcast Conte pronto",
+          `Moto locale ${motion.name}, circa ${Math.round(motion.speedKmh)} km/h. Prova +10/+20/+30 min e Play.`
+        );
+      }
+    }catch(e){
       console.error(e);
       motion=null;
-      setMotionUI(
-        "non disponibile",
-        "--",
-        "--",
-        "--",
-        `Analisi non riuscita: ${e.message || e}. Può dipendere da echi troppo deboli/assenti oppure dal blocco CORS delle immagini RainViewer.`
-      );
-      status(
-        "warn",
-        "OSSERVATO OK · nowcast non calcolato",
-        `RainViewer funziona, ma l'analisi automatica non è riuscita: ${e.message || e}.`
-      );
+      setMotionUI("non disponibile","--","--","--",`Analisi non riuscita: ${e.message||e}.`);
+      status("warn","OSSERVATO OK · analisi fallita",`Il radar reale funziona, ma il moto locale non è stato calcolato: ${e.message||e}.`);
     }
-
-  } catch (e) {
+  }catch(e){
     console.error(e);
-    status(
-      "warn",
-      "Errore inizializzazione",
-      `Non riesco ad avviare Radar Evoluzione: ${e.message || e}.`
-    );
+    status("warn","Errore inizializzazione",`Non riesco ad avviare il radar: ${e.message||e}.`);
   }
-
-  window.addEventListener("beforeunload",()=>{
-    if (latestForecastImageObjectURL) {
-      try { URL.revokeObjectURL(latestForecastImageObjectURL); } catch (_) {}
-    }
-  });
 });
