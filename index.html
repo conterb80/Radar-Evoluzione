@@ -4,19 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#06101d">
-  <title>Meteo Conte · Evoluzione v4.3.1</title>
+  <title>Meteo Conte · Evoluzione v4.4 ARPAE Test</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=431">
+  <link rel="stylesheet" href="style.css?v=440">
 </head>
 <body>
   <main class="app">
-    <div class="eyebrow">METEO CONTE · RADAR EVOLUZIONE V4.3.1 · DIAGNOSTICA WEATHERAPI</div>
+    <div class="eyebrow">METEO CONTE · RADAR EVOLUZIONE V4.4 · TEST ARPAE NOWCAST</div>
     <h1>Evoluzione animata</h1>
-    <p class="sub">Radar osservato → adesso → previsione reale</p>
+    <p class="sub">Radar osservato → adesso → nowcast ufficiale ARPAE</p>
 
     <section class="source-note">
-      <div><strong>FUTURO senza chiave API</strong><span>WeatherAPI Maps</span></div>
-      <small>Precipitazione previsionale oraria: +1h · +2h · +3h. RainViewer resta per l'osservato.</small>
+      <div><strong>FUTURO senza abbonamento</strong><span>ARPAE Emilia-Romagna</span></div>
+      <small>
+        RainViewer resta per l'osservato. Dopo ADESSO viene mostrata la mappa ufficiale
+        ARPAE di evoluzione degli echi: +1h giallo · +2h arancione · +3h rosso.
+        Questa versione serve a verificare accesso e qualità grafica del dato.
+      </small>
     </section>
 
     <section class="card">
@@ -25,10 +29,23 @@
         <strong id="clock">--:--</strong>
         <span id="source">RainViewer</span>
       </div>
+
       <div id="map"></div>
-      <div class="phase"><span>PASSATO</span><b>● ADESSO</b><span>FUTURO</span></div>
+
+      <div class="phase">
+        <span>PASSATO</span>
+        <b>● ADESSO</b>
+        <span>NOWCAST</span>
+      </div>
+
       <input id="timeline" type="range" min="0" max="0" value="0">
-      <div class="ticks"><span>-2h</span><span>adesso</span><span>+3h</span></div>
+
+      <div class="ticks">
+        <span>-2h</span>
+        <span>adesso</span>
+        <span>+1/+2/+3h</span>
+      </div>
+
       <div class="controls">
         <button id="prev">◀</button>
         <button id="play" class="play">▶ Play</button>
@@ -37,12 +54,23 @@
       </div>
     </section>
 
+    <section class="legend" id="arpaeLegend">
+      <strong>ARPAE NOWCAST</strong>
+      <div class="legend-row">
+        <span><i class="dot yellow"></i> +1h</span>
+        <span><i class="dot orange"></i> +2h</span>
+        <span><i class="dot red"></i> +3h</span>
+      </div>
+      <small>Le linee rappresentano lo spostamento previsto degli echi radar, non tre immagini radar separate.</small>
+    </section>
+
     <section class="info">
       <div><span id="led" class="led"></span><strong id="statusTitle">Avvio</strong></div>
       <p id="status">Caricamento radar reale…</p>
     </section>
   </main>
+
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js?v=431"></script>
+  <script src="app.js?v=440"></script>
 </body>
 </html>

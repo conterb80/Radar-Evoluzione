@@ -2,34 +2,57 @@
 
 document.addEventListener("DOMContentLoaded", async () => {
   const C = [44.45, 12.02];
-  const HOUR = 60 * 60 * 1000;
-  const FUTURE_HOURS = 3;
-  const WEATHER_Z_CANDIDATES = [6, 5, 4, 7, 8];
+
+  const RV_MANIFEST = "https://api.rainviewer.com/public/weather-maps.json";
+  const ARPAE_PORTAL = "https://allertameteo.regione.emilia-romagna.it/o/api/allerta/get-nowcasting";
+  const ARPAE_UPSTREAM = "https://apps.arpae.it/REST/meteo_radar_nowcasting?sort=-data_validita&max_results=1";
+
+  // Bounding box usato dal portale Allerta Meteo ER per il layer nowcasting:
+  // west, south, east, north
+  const ARPAE_BOUNDS = [5.00129, 40.999, 17.0188, 48.216];
+
   const $ = id => document.getElementById(id);
 
   const map = L.map("map", { zoomControl: true }).setView([44.45, 11.85], 8);
+
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
     attribution: "© OpenStreetMap"
   }).addTo(map);
 
   L.circleMarker(C, {
-    radius: 6, weight: 2, color: "#fff", fillColor: "#58c7ff", fillOpacity: 1
+    radius: 6,
+    weight: 2,
+    color: "#fff",
+    fillColor: "#58c7ff",
+    fillOpacity: 1
   }).addTo(map).bindTooltip("Borgo Viazza", {
-    permanent: true, direction: "top", offset: [0, -7], className: "borgo"
+    permanent: true,
+    direction: "top",
+    offset: [0, -7],
+    className: "borgo"
   });
 
   let rvHost = "";
   let frames = [];
   let idx = 0;
   let nowIdx = 0;
-  let layer = null;
+  let dataLayer = null;
   let playing = false;
   let renderToken = 0;
-  const weatherZoomCache = new Map();
+  let arpae = null;
+  let arpaeLoadReport = "";
 
   const fmt = t => new Intl.DateTimeFormat("it-IT", {
-    hour: "2-digit", minute: "2-digit"
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(t));
+
+  const fmtDateTime = t => new Intl.DateTimeFormat("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
   }).format(new Date(t));
 
   function status(kind, title, text) {
@@ -38,154 +61,230 @@ document.addEventListener("DOMContentLoaded", async () => {
     $("status").textContent = text;
   }
 
-  function weatherStamp(t) {
-    const d = new Date(t);
-    const y = d.getUTCFullYear();
-    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-    const day = String(d.getUTCDate()).padStart(2, "0");
-    const h = String(d.getUTCHours()).padStart(2, "0");
-    return `${y}${m}${day}${h}`;
+  function normalizeBase64(v) {
+    if (!v || typeof v !== "string") return null;
+    const s = v.trim();
+    if (!s) return null;
+    return s.startsWith("data:image") ? s : "data:image/png;base64," + s;
   }
 
-  function utcHour(t) {
-    return String(new Date(t).getUTCHours()).padStart(2, "0") + " UTC";
+  function leafletBounds(raw) {
+    const b = Array.isArray(raw) && raw.length === 4 ? raw : ARPAE_BOUNDS;
+    return L.latLngBounds(
+      [Number(b[1]), Number(b[0])],
+      [Number(b[3]), Number(b[2])]
+    );
   }
 
-  function weatherApiURL(t) {
-    return `https://weathermaps.weatherapi.com/precip/tiles/${weatherStamp(t)}/{z}/{x}/{y}.png`;
-  }
+  async function fetchJson(url, timeoutMs = 9000) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), timeoutMs);
 
-  function tileXY(lat, lon, z) {
-    const n = 2 ** z;
-    const x = Math.floor((lon + 180) / 360 * n);
-    const r = lat * Math.PI / 180;
-    const y = Math.floor((1 - Math.asinh(Math.tan(r)) / Math.PI) / 2 * n);
-    return [x, y];
-  }
+    try {
+      const r = await fetch(url, {
+        cache: "no-store",
+        mode: "cors",
+        signal: ac.signal,
+        headers: { "Accept": "application/json" }
+      });
 
-  function probeImage(url, timeoutMs = 4500) {
-    return new Promise(resolve => {
-      const img = new Image();
-      let done = false;
-      const finish = ok => {
-        if (done) return;
-        done = true;
-        img.onload = img.onerror = null;
-        resolve(ok);
-      };
-      img.onload = () => finish(true);
-      img.onerror = () => finish(false);
-      img.referrerPolicy = "no-referrer";
-      img.src = url + (url.includes("?") ? "&" : "?") + "mc=" + Date.now();
-      setTimeout(() => finish(false), timeoutMs);
-    });
-  }
-
-  async function findWeatherNativeZoom(t) {
-    const stamp = weatherStamp(t);
-    if (weatherZoomCache.has(stamp)) return weatherZoomCache.get(stamp);
-
-    for (const z of WEATHER_Z_CANDIDATES) {
-      const [x, y] = tileXY(C[0], C[1], z);
-      const url = `https://weathermaps.weatherapi.com/precip/tiles/${stamp}/${z}/${x}/${y}.png`;
-      if (await probeImage(url)) {
-        weatherZoomCache.set(stamp, z);
-        return z;
-      }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return await r.json();
+    } finally {
+      clearTimeout(timer);
     }
-    weatherZoomCache.set(stamp, null);
+  }
+
+  function parsePortalNowcast(d) {
+    if (!d || !d.images || typeof d.images !== "object") {
+      throw new Error("JSON portale senza campo images");
+    }
+
+    const entries = Object.entries(d.images);
+    if (!entries.length) throw new Error("Nessuna immagine ARPAE nel portale");
+
+    entries.sort((a, b) => Number(a[0]) - Number(b[0]));
+    const [key, raw] = entries[entries.length - 1];
+
+    const url = normalizeBase64(raw);
+    if (!url) throw new Error("Immagine ARPAE vuota");
+
+    const n = Number(key);
+    const validTime = Number.isFinite(n) && n > 1_000_000_000
+      ? n * 1000
+      : Date.now();
+
+    return {
+      url,
+      bounds: d.bounds || ARPAE_BOUNDS,
+      validTime,
+      provider: "Portale Allerta Meteo ER"
+    };
+  }
+
+  function parseUpstreamNowcast(d) {
+    const item = d && Array.isArray(d._items) ? d._items[0] : null;
+    const raw = item && item.mappa ? item.mappa.image_data : null;
+    const url = normalizeBase64(raw);
+
+    if (!url) throw new Error("REST ARPAE senza mappa.image_data");
+
+    let validTime = Date.now();
+    if (item.data_validita) {
+      const parsed = Date.parse(item.data_validita);
+      if (Number.isFinite(parsed)) validTime = parsed;
+    }
+
+    return {
+      url,
+      bounds: ARPAE_BOUNDS,
+      validTime,
+      provider: "REST ARPAE"
+    };
+  }
+
+  async function loadArpaeNowcast() {
+    const errors = [];
+
+    try {
+      const d = await fetchJson(ARPAE_PORTAL);
+      const result = parsePortalNowcast(d);
+      arpaeLoadReport = "Accesso diretto al Portale Allerta Meteo ER riuscito.";
+      return result;
+    } catch (e) {
+      errors.push(`Portale: ${e.message || e}`);
+    }
+
+    try {
+      const d = await fetchJson(ARPAE_UPSTREAM);
+      const result = parseUpstreamNowcast(d);
+      arpaeLoadReport = "Portale diretto non accessibile; REST ARPAE riuscito.";
+      return result;
+    } catch (e) {
+      errors.push(`REST ARPAE: ${e.message || e}`);
+    }
+
+    arpaeLoadReport = errors.join(" · ");
     return null;
   }
 
-  function replace(url, opacity = .72, maxNativeZoom = 7) {
+  function removeDataLayer() {
+    if (!dataLayer) return;
+    try { map.removeLayer(dataLayer); } catch (_) {}
+    dataLayer = null;
+  }
+
+  function showRainViewer(f) {
     return new Promise(resolve => {
-      let loaded = 0;
-      let errors = 0;
-      let done = false;
-      const n = L.tileLayer(url, {
+      const n = L.tileLayer(`${rvHost}${f.path}/256/{z}/{x}/{y}/2/1_1.png`, {
         maxZoom: 18,
-        maxNativeZoom,
+        maxNativeZoom: 7,
         opacity: 0,
         keepBuffer: 1,
         updateWhenZooming: false,
         updateWhenIdle: true
       }).addTo(map);
 
+      let loaded = 0;
+      let done = false;
+
       const finish = ok => {
         if (done) return;
         done = true;
+
         if (ok) {
-          const old = layer;
-          layer = n;
-          n.setOpacity(opacity);
-          if (old && old !== n) {
-            setTimeout(() => { try { map.removeLayer(old); } catch (_) {} }, 140);
-          }
+          removeDataLayer();
+          dataLayer = n;
+          n.setOpacity(.72);
         } else {
           try { map.removeLayer(n); } catch (_) {}
         }
-        resolve({ ok, loaded, errors });
+
+        resolve(ok);
       };
 
       n.on("tileload", () => loaded++);
-      n.on("tileerror", () => errors++);
       n.once("load", () => finish(loaded > 0));
-      setTimeout(() => finish(loaded > 0), 7000);
+      setTimeout(() => finish(loaded > 0), 6500);
     });
+  }
+
+  function showArpaeNowcast() {
+    if (!arpae) return false;
+
+    const bounds = leafletBounds(arpae.bounds);
+    const n = L.imageOverlay(arpae.url, bounds, {
+      opacity: .78,
+      interactive: false
+    });
+
+    removeDataLayer();
+    dataLayer = n;
+    n.addTo(map);
+    return true;
   }
 
   async function show(n) {
     const myToken = ++renderToken;
+
     idx = Math.max(0, Math.min(frames.length - 1, n));
     $("timeline").value = idx;
 
     const f = frames[idx];
-    const future = f.kind === "forecast";
-    $("badge").textContent = future ? "PREVISIONE" : "OSSERVATO";
-    $("badge").className = "badge" + (future ? " future" : "");
-    $("clock").textContent = fmt(f.t);
-    $("source").textContent = future ? `WeatherAPI · step ${f.h}` : "RainViewer · radar";
 
-    if (future) {
-      const stamp = weatherStamp(f.t);
-      status("", "Verifica frame WeatherAPI", `Cerco il frame ${fmt(f.t)} (${utcHour(f.t)}) · ${stamp}…`);
+    if (f.kind === "nowcast") {
+      $("badge").textContent = "NOWCAST";
+      $("badge").className = "badge future";
+      $("clock").textContent = arpae ? fmt(arpae.validTime) : "--:--";
+      $("source").textContent = "ARPAE · +1/+2/+3h";
 
-      const nativeZoom = await findWeatherNativeZoom(f.t);
-      if (myToken !== renderToken) return false;
-
-      if (nativeZoom == null) {
+      if (!arpae) {
         status(
           "warn",
-          "Frame WeatherAPI non pubblicato",
-          `Il server non restituisce la tile su Borgo Viazza per ${fmt(f.t)} (${utcHour(f.t)}), stamp ${stamp}. Il radar visibile resta l'ultimo OSSERVATO.`
+          "Nowcast ARPAE non accessibile",
+          `${arpaeLoadReport || "Nessun dato disponibile."} Il radar osservato resta comunque utilizzabile.`
         );
         return false;
       }
 
-      status("", "Frame WeatherAPI trovato", `Tile centrale valida a zoom nativo ${nativeZoom}. Carico la previsione delle ${fmt(f.t)}…`);
-      const result = await replace(weatherApiURL(f.t), .68, nativeZoom);
+      status(
+        "",
+        "Carico nowcast ARPAE",
+        `Mappa valida ${fmtDateTime(arpae.validTime)} · ${arpae.provider}…`
+      );
+
+      const ok = showArpaeNowcast();
       if (myToken !== renderToken) return false;
 
-      const ok = result.ok;
       status(
         ok ? "ok" : "warn",
-        ok ? "Previsione WeatherAPI caricata" : "Layer WeatherAPI incompleto",
+        ok ? "Nowcast ARPAE caricato" : "Nowcast ARPAE non visualizzato",
         ok
-          ? `Frame ${fmt(f.t)} (${utcHour(f.t)}) · zoom nativo ${nativeZoom} · ${result.loaded} tile caricate.`
-          : `Tile centrale disponibile, ma il layer non si è completato (${result.loaded} caricate, ${result.errors} errori).`
+          ? `Dato ufficiale ${fmtDateTime(arpae.validTime)}. Giallo +1h · arancione +2h · rosso +3h. ${arpaeLoadReport}`
+          : "Il dato è stato letto ma il layer non è stato disegnato."
       );
       return ok;
     }
 
+    $("badge").textContent = "OSSERVATO";
+    $("badge").className = "badge";
+    $("clock").textContent = fmt(f.t);
+    $("source").textContent = "RainViewer · radar";
+
     status("", "Caricamento radar", `Frame radar ${fmt(f.t)}…`);
-    const result = await replace(`${rvHost}${f.path}/256/{z}/{x}/{y}/2/1_1.png`, .72, 7);
+    const ok = await showRainViewer(f);
+
     if (myToken !== renderToken) return false;
+
     status(
-      result.ok ? "ok" : "warn",
-      result.ok ? "Radar reale caricato" : "Radar non disponibile",
-      result.ok ? `Osservazione radar delle ${fmt(f.t)}.` : "Il frame RainViewer non ha risposto."
+      ok ? "ok" : "warn",
+      ok ? "Radar reale caricato" : "Radar non disponibile",
+      ok
+        ? `Osservazione radar delle ${fmt(f.t)}.`
+        : "Il frame RainViewer non ha risposto."
     );
-    return result.ok;
+
+    return ok;
   }
 
   function stop() {
@@ -197,44 +296,83 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (playing) return;
     playing = true;
     $("play").textContent = "⏸ Pausa";
+
     while (playing) {
       const next = idx >= frames.length - 1 ? 0 : idx + 1;
       await show(next);
+
       if (!playing) break;
-      await new Promise(r => setTimeout(r, 1100));
+
+      // Pausa un po' più lunga sul frame NOWCAST per poterlo leggere.
+      const delay = frames[idx] && frames[idx].kind === "nowcast" ? 2200 : 950;
+      await new Promise(r => setTimeout(r, delay));
     }
   }
 
-  $("play").onclick = () => { if (playing) stop(); else start(); };
+  $("play").onclick = () => playing ? stop() : start();
   $("prev").onclick = () => { stop(); show(idx - 1); };
   $("next").onclick = () => { stop(); show(idx + 1); };
   $("now").onclick = () => { stop(); show(nowIdx); };
   $("timeline").oninput = e => { stop(); show(+e.target.value); };
 
   try {
-    const r = await fetch("https://api.rainviewer.com/public/weather-maps.json", { cache: "no-store" });
-    if (!r.ok) throw Error(r.status);
-    const d = await r.json();
+    status("", "Avvio", "Carico RainViewer e verifico il nowcast ARPAE…");
+
+    const [rvResult, arpaeResult] = await Promise.allSettled([
+      fetch(RV_MANIFEST, { cache: "no-store" }).then(async r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      }),
+      loadArpaeNowcast()
+    ]);
+
+    if (rvResult.status !== "fulfilled") {
+      throw rvResult.reason || new Error("RainViewer non disponibile");
+    }
+
+    const d = rvResult.value;
     rvHost = d.host || "https://tilecache.rainviewer.com";
 
-    const past = (d.radar && Array.isArray(d.radar.past)) ? d.radar.past : [];
-    frames = past.map(x => ({ kind: "observed", t: x.time * 1000, path: x.path }));
-    if (!frames.length) throw Error("no frames");
+    const past = d.radar && Array.isArray(d.radar.past) ? d.radar.past : [];
+    frames = past.map(x => ({
+      kind: "observed",
+      t: x.time * 1000,
+      path: x.path
+    }));
+
+    if (!frames.length) throw new Error("Nessun frame RainViewer");
 
     nowIdx = frames.length - 1;
-    const base = frames[nowIdx].t;
-    const firstForecastHour = Math.floor(base / HOUR) * HOUR + HOUR;
-    for (let h = 1; h <= FUTURE_HOURS; h++) {
-      frames.push({ kind: "forecast", t: firstForecastHour + (h - 1) * HOUR, h });
-    }
+
+    arpae = arpaeResult.status === "fulfilled" ? arpaeResult.value : null;
+
+    // Un solo frame futuro: la mappa ARPAE contiene contemporaneamente
+    // le traiettorie +1h, +2h e +3h.
+    frames.push({
+      kind: "nowcast",
+      t: arpae ? arpae.validTime : Date.now()
+    });
 
     $("timeline").max = frames.length - 1;
     idx = nowIdx;
     $("timeline").value = idx;
+
     await show(idx);
     setTimeout(() => map.invalidateSize(), 200);
+
+    if (!arpae) {
+      status(
+        "warn",
+        "Radar osservato OK · ARPAE da verificare",
+        `RainViewer funziona. Il browser non è riuscito a leggere ARPAE: ${arpaeLoadReport || "errore sconosciuto"}. Premi ▶ una volta per verificare anche il frame NOWCAST.`
+      );
+    }
   } catch (e) {
     console.error(e);
-    status("warn", "Errore inizializzazione", "Non riesco a caricare il manifest radar RainViewer. Riprova più tardi.");
+    status(
+      "warn",
+      "Errore inizializzazione",
+      `Non riesco a inizializzare il test. ${e && e.message ? e.message : e}`
+    );
   }
 });
