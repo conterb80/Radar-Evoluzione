@@ -1,4 +1,48 @@
-<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#06101d"><title>Meteo Conte · Evoluzione v4.2</title><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><link rel="stylesheet" href="style.css?v=42"></head><body><main class="app"><div class="eyebrow">METEO CONTE · PROTOTIPO V4.2 · DIAGNOSTICA</div><h1>Evoluzione animata</h1><p class="sub">Radar osservato → adesso → previsione reale</p>
-<section class="settings"><div><strong>Tomorrow.io</strong><span id="keyState">chiave non impostata</span></div><div class="keyrow"><input id="apiKey" type="password" placeholder="Incolla API key Tomorrow.io"><button id="saveKey">Salva</button></div><small>La chiave resta nel browser del tuo telefono. Serve soltanto al prototipo.</small></section>
-<section class="card"><div class="head"><span id="badge" class="badge">OSSERVATO</span><strong id="clock">--:--</strong><span id="source">RainViewer</span></div><div id="map"></div><div class="phase"><span>PASSATO</span><b>● ADESSO</b><span>FUTURO</span></div><input id="timeline" type="range" min="0" max="0" value="0"><div class="ticks"><span>-2h</span><span>adesso</span><span>+3h</span></div><div class="controls"><button id="prev">◀</button><button id="play" class="play">▶ Play</button><button id="next">▶</button><button id="now">Adesso</button></div></section>
-<section class="info"><div><span id="led" class="led"></span><strong id="statusTitle">Avvio</strong></div><p id="status">Caricamento radar reale…</p></section></main><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="app.js?v=42"></script></body></html>
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#06101d">
+  <title>Meteo Conte · Evoluzione v4.3</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css?v=43">
+</head>
+<body>
+  <main class="app">
+    <div class="eyebrow">METEO CONTE · RADAR EVOLUZIONE V4.3 · TEST WEATHERAPI</div>
+    <h1>Evoluzione animata</h1>
+    <p class="sub">Radar osservato → adesso → previsione reale</p>
+
+    <section class="source-note">
+      <div><strong>FUTURO senza chiave API</strong><span>WeatherAPI Maps</span></div>
+      <small>Precipitazione previsionale oraria: +1h · +2h · +3h. RainViewer resta per l'osservato.</small>
+    </section>
+
+    <section class="card">
+      <div class="head">
+        <span id="badge" class="badge">OSSERVATO</span>
+        <strong id="clock">--:--</strong>
+        <span id="source">RainViewer</span>
+      </div>
+      <div id="map"></div>
+      <div class="phase"><span>PASSATO</span><b>● ADESSO</b><span>FUTURO</span></div>
+      <input id="timeline" type="range" min="0" max="0" value="0">
+      <div class="ticks"><span>-2h</span><span>adesso</span><span>+3h</span></div>
+      <div class="controls">
+        <button id="prev">◀</button>
+        <button id="play" class="play">▶ Play</button>
+        <button id="next">▶</button>
+        <button id="now">Adesso</button>
+      </div>
+    </section>
+
+    <section class="info">
+      <div><span id="led" class="led"></span><strong id="statusTitle">Avvio</strong></div>
+      <p id="status">Caricamento radar reale…</p>
+    </section>
+  </main>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js?v=43"></script>
+</body>
+</html>
