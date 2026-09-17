@@ -1,401 +1,97 @@
 "use strict";
 
 document.addEventListener("DOMContentLoaded", async () => {
-  const C = [44.45, 12.02];
-  const RV_MANIFEST = "https://api.rainviewer.com/public/weather-maps.json";
-  const ANALYSIS_Z = 7;
-  const ANALYSIS_IMG = 512;
-  const CROP = 360;
-  const SMALL = 180;
-  const FUTURE_STEP_MIN = 10;
-  const FUTURE_STEPS = 9;
-  const PAIRS_TO_USE = 5;
+  const C=[44.45,12.02], RV="https://api.rainviewer.com/public/weather-maps.json";
+  const Z=7, IMG=512, STEP=10, FUTURE=9, HISTORY=7, MIN_AREA=7, RADIUS=210, MAX_JUMP=52;
+  const $=id=>document.getElementById(id);
 
-  const $ = id => document.getElementById(id);
-
-  const map = L.map("map", {zoomControl:true}).setView([44.45,11.85],8);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
-    maxZoom:18,attribution:"© OpenStreetMap"
-  }).addTo(map);
-
+  const map=L.map("map",{zoomControl:true}).setView([44.45,11.85],8);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap"}).addTo(map);
   map.createPane("forecastPane");
-  const forecastPane = map.getPane("forecastPane");
-  forecastPane.style.zIndex = "250";
-  forecastPane.style.pointerEvents = "none";
+  const forecastPane=map.getPane("forecastPane"); forecastPane.style.zIndex="250"; forecastPane.style.pointerEvents="none";
+  L.circleMarker(C,{radius:6,weight:2,color:"#fff",fillColor:"#58c7ff",fillOpacity:1}).addTo(map).bindTooltip("Borgo Viazza",{permanent:true,direction:"top",offset:[0,-7],className:"borgo"});
 
-  L.circleMarker(C,{radius:6,weight:2,color:"#fff",fillColor:"#58c7ff",fillOpacity:1})
-    .addTo(map).bindTooltip("Borgo Viazza",{permanent:true,direction:"top",offset:[0,-7],className:"borgo"});
-
-  let rvHost="", past=[], frames=[], idx=0, nowIdx=0;
-  let observedLayer=null, forecastLayer=null, playing=false, renderToken=0;
-  let motion=null;
-
+  let host="",past=[],frames=[],idx=0,nowIdx=0,observed=null,forecast=null,playing=false,token=0,track=null,cellMarker=null;
   const fmt=t=>new Intl.DateTimeFormat("it-IT",{hour:"2-digit",minute:"2-digit"}).format(new Date(t));
+  function status(kind,title,text){$("led").className="led "+kind;$("statusTitle").textContent=title;$("status").textContent=text}
+  function motionUI(state,dir="--",speed="--",conf="--",note=""){ $("motionState").textContent=state;$("motionDir").textContent=dir;$("motionSpeed").textContent=speed;$("motionConf").textContent=conf;if(note)$("motionNote").textContent=note }
+  const imageUrl=f=>`${host}${f.path}/${IMG}/${Z}/${C[0]}/${C[1]}/2/1_1.png`;
 
-  function status(kind,title,text){
-    $("led").className="led "+kind;
-    $("statusTitle").textContent=title;
-    $("status").textContent=text;
+  async function loadImage(url){
+    const r=await fetch(url,{mode:"cors",cache:"no-store"}); if(!r.ok)throw Error(`HTTP ${r.status}`);
+    const blob=await r.blob(), u=URL.createObjectURL(blob), img=new Image(); img.decoding="async";
+    await new Promise((ok,no)=>{img.onload=ok;img.onerror=()=>no(Error("PNG non decodificato"));img.src=u});
+    return {img,u};
   }
 
-  function setMotionUI(state,dir="--",speed="--",conf="--",note=""){
-    $("motionState").textContent=state;
-    $("motionDir").textContent=dir;
-    $("motionSpeed").textContent=speed;
-    $("motionConf").textContent=conf;
-    if(note)$("motionNote").textContent=note;
+  function maskFrom(img){
+    const c=document.createElement("canvas");c.width=IMG;c.height=IMG;const ctx=c.getContext("2d",{willReadFrequently:true});ctx.drawImage(img,0,0,IMG,IMG);
+    const d=ctx.getImageData(0,0,IMG,IMG).data,m=new Uint8Array(IMG*IMG);for(let i=0,p=0;i<d.length;i+=4,p++)if(d[i+3]>38)m[p]=1;return m;
   }
 
-  function coordImageUrl(frame){
-    return `${rvHost}${frame.path}/${ANALYSIS_IMG}/${ANALYSIS_Z}/${C[0]}/${C[1]}/2/1_1.png`;
+  function comps(m){
+    const seen=new Uint8Array(m.length), out=[], q=[];
+    for(let y=0;y<IMG;y++)for(let x=0;x<IMG;x++){
+      const s=y*IMG+x;if(!m[s]||seen[s])continue;
+      q.length=0;q.push(s);seen[s]=1;let h=0,a=0,sx=0,sy=0;
+      while(h<q.length){const p=q[h++],cy=(p/IMG)|0,cx=p-cy*IMG;a++;sx+=cx;sy+=cy;
+        for(let oy=-1;oy<=1;oy++)for(let ox=-1;ox<=1;ox++){if(!ox&&!oy)continue;const nx=cx+ox,ny=cy+oy;if(nx<0||nx>=IMG||ny<0||ny>=IMG)continue;const np=ny*IMG+nx;if(m[np]&&!seen[np]){seen[np]=1;q.push(np)}}
+      }
+      if(a>=MIN_AREA)out.push({area:a,x:sx/a,y:sy/a});
+    }
+    return out;
   }
 
-  async function loadImage(url,timeoutMs=8000){
-    const ac=new AbortController();
-    const timer=setTimeout(()=>ac.abort(),timeoutMs);
+  function choose(list){
+    const cx=IMG/2,cy=IMG/2;let best=null,cost=1e9;
+    for(const c of list){const d=Math.hypot(c.x-cx,c.y-cy);if(d>RADIUS)continue;const v=d-Math.min(c.area,500)*.025;if(v<cost){cost=v;best=c}}
+    return best;
+  }
+
+  function match(next,list,pred){
+    const tx=pred?pred.x:next.x,ty=pred?pred.y:next.y;let best=null,cost=1e9;
+    for(const c of list){const d=Math.hypot(c.x-tx,c.y-ty);if(d>MAX_JUMP)continue;const ratio=Math.max(c.area,next.area)/Math.max(1,Math.min(c.area,next.area));if(ratio>5.5)continue;const v=d+Math.abs(Math.log(c.area/next.area))*11;if(v<cost){cost=v;best=c}}
+    return best;
+  }
+
+  function fit(points,key){const n=points.length,mt=points.reduce((s,p)=>s+p.t,0)/n,mv=points.reduce((s,p)=>s+p[key],0)/n;let num=0,den=0;for(const p of points){const dt=p.t-mt;num+=dt*(p[key]-mv);den+=dt*dt}const slope=den?num/den:0,intercept=mv-slope*mt;let mse=0;for(const p of points){const e=p[key]-(intercept+slope*p.t);mse+=e*e}return {slope,rmse:Math.sqrt(mse/n)}}
+  function project(lat,lon,z){const w=256*(2**z),x=(lon+180)/360*w,s=Math.sin(lat*Math.PI/180),y=(.5-Math.log((1+s)/(1-s))/(4*Math.PI))*w;return[x,y]}
+  function unproject(x,y,z){const w=256*(2**z),lon=x/w*360-180,n=Math.PI-2*Math.PI*y/w,lat=180/Math.PI*Math.atan(Math.sinh(n));return[lat,lon]}
+  function pxLatLng(x,y){const [cx,cy]=project(C[0],C[1],Z);return unproject(cx+(x-IMG/2),cy+(y-IMG/2),Z)}
+  function stats(dx,dy){const mpp=156543.03392*Math.cos(C[0]*Math.PI/180)/(2**Z),east=dx*mpp,north=-dy*mpp,dist=Math.hypot(east,north),speed=dist*6/1000,b=(Math.atan2(east,north)*180/Math.PI+360)%360,names=["N","NE","E","SE","S","SO","O","NO"];return{speed,bearing:b,name:names[Math.round(b/45)%8]}}
+
+  async function trackCell(){
+    motionUI("ricerca cella…");const recent=past.slice(-HISTORY),loaded=[];
     try{
-      const r=await fetch(url,{mode:"cors",cache:"no-store",signal:ac.signal});
-      if(!r.ok)throw new Error(`HTTP ${r.status}`);
-      const blob=await r.blob();
-      const objectURL=URL.createObjectURL(blob);
-      const img=new Image();
-      img.decoding="async";
-      await new Promise((resolve,reject)=>{
-        img.onload=resolve;
-        img.onerror=()=>reject(new Error("PNG non decodificato"));
-        img.src=objectURL;
-      });
-      return {img,objectURL};
-    }finally{clearTimeout(timer)}
+      for(const f of recent){const it=await loadImage(imageUrl(f));loaded.push({f,cs:comps(maskFrom(it.img)),u:it.u})}
+      const target=choose(loaded.at(-1).cs);if(!target)throw Error("nessuna cella significativa vicina a Borgo Viazza");
+      const pts=[{...target,f:loaded.at(-1).f,t:0}];let next=target,dxPrev=0,dyPrev=0;
+      for(let i=loaded.length-2;i>=0;i--){const mins=(loaded.at(-1).f.time-loaded[i].f.time)/60,pred=pts.length>=2?{x:next.x-dxPrev,y:next.y-dyPrev}:null,prev=match(next,loaded[i].cs,pred);if(!prev)break;const newer=pts.at(-1);dxPrev=newer.x-prev.x;dyPrev=newer.y-prev.y;pts.push({...prev,f:loaded[i].f,t:-mins});next=prev}
+      if(pts.length<3)throw Error(`cella trovata ma seguita solo in ${pts.length} frame`);
+      pts.sort((a,b)=>a.t-b.t);const fx=fit(pts,"x"),fy=fit(pts,"y"),dx10=fx.slope*10,dy10=fy.slope*10,st=stats(dx10,dy10),res=Math.hypot(fx.rmse,fy.rmse),coverage=Math.min(1,pts.length/HISTORY),cons=Math.exp(-res/10),areas=pts.map(p=>p.area),mean=areas.reduce((s,a)=>s+a,0)/areas.length,spread=Math.sqrt(areas.reduce((s,a)=>s+(a-mean)**2,0)/areas.length)/Math.max(1,mean),shape=Math.max(0,1-Math.min(1,spread)),conf=Math.max(0,Math.min(1,coverage*.45+cons*.35+shape*.2)),latest=pts.at(-1);
+      track={target:latest,pts,dx10,dy10,speed:st.speed,bearing:st.bearing,name:st.name,conf};
+      const cl=conf>=.68?"alta":conf>=.42?"media":"bassa",dir=st.speed<3.5?"quasi ferma":`${st.name} · ${Math.round(st.bearing)}°`;
+      motionUI("cella agganciata",dir,`${Math.round(st.speed)} km/h`,cl,`Cella seguita in ${pts.length} frame. Il punto giallo indica l'eco scelto automaticamente; il FUTURO usa la traiettoria di questa cella.`);updateMarker(0);return track;
+    } finally {for(const x of loaded)try{URL.revokeObjectURL(x.u)}catch(_){}}
   }
 
-  function makeField(img){
-    const src=document.createElement("canvas");
-    src.width=ANALYSIS_IMG; src.height=ANALYSIS_IMG;
-    const sctx=src.getContext("2d",{willReadFrequently:true});
-    sctx.drawImage(img,0,0,ANALYSIS_IMG,ANALYSIS_IMG);
+  function updateMarker(step){if(!track)return;const ll=pxLatLng(track.target.x+track.dx10*step,track.target.y+track.dy10*step);if(!cellMarker){cellMarker=L.circleMarker(ll,{radius:8,weight:3,color:"#ffcf4d",fillColor:"#ffcf4d",fillOpacity:.12}).addTo(map).bindTooltip("cella seguita",{permanent:true,direction:"right",offset:[10,0],className:"cell-tag"})}else cellMarker.setLatLng(ll)}
+  function remObs(){if(observed){try{map.removeLayer(observed)}catch(_){}observed=null}}
+  function remFc(){if(forecast){try{map.removeLayer(forecast)}catch(_){}forecast=null}forecastPane.style.marginLeft="0px";forecastPane.style.marginTop="0px"}
 
-    const crop=document.createElement("canvas");
-    crop.width=SMALL; crop.height=SMALL;
-    const ctx=crop.getContext("2d",{willReadFrequently:true});
+  function showObserved(f){remFc();updateMarker(0);return new Promise(resolve=>{const n=L.tileLayer(`${host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`,{maxZoom:18,maxNativeZoom:7,opacity:0,keepBuffer:4,updateWhenZooming:false,updateWhenIdle:true}).addTo(map);let loaded=0,done=false;const finish=ok=>{if(done)return;done=true;if(ok){remObs();observed=n;n.setOpacity(.72)}else try{map.removeLayer(n)}catch(_){}resolve(ok)};n.on("tileload",()=>loaded++);n.once("load",()=>finish(loaded>0));setTimeout(()=>finish(loaded>0),6500)})}
+  function ensureForecast(){if(forecast)return;const last=past.at(-1);forecast=L.tileLayer(`${host}${last.path}/256/{z}/{x}/{y}/2/1_1.png`,{pane:"forecastPane",maxZoom:18,maxNativeZoom:7,opacity:.72,keepBuffer:6,updateWhenZooming:false,updateWhenIdle:true}).addTo(map)}
+  function apply(step){if(!track)return false;ensureForecast();remObs();const scale=2**(map.getZoom()-Z);forecastPane.style.marginLeft=`${track.dx10*step*scale}px`;forecastPane.style.marginTop=`${track.dy10*step*scale}px`;updateMarker(step);return true}
 
-    const o=(ANALYSIS_IMG-CROP)/2;
-    ctx.drawImage(src,o,o,CROP,CROP,0,0,SMALL,SMALL);
-
-    const rgba=ctx.getImageData(0,0,SMALL,SMALL).data;
-    const f=new Uint8Array(SMALL*SMALL);
-    const active=[];
-
-    for(let i=0,p=0;i<rgba.length;i+=4,p++){
-      const a=rgba[i+3];
-      if(a>36){
-        f[p]=1;
-        active.push(p);
-      }
-    }
-    return {f,active};
-  }
-
-  function shiftScore(A,B,dx,dy){
-    if(!A.active.length||!B.active.length)return 0;
-    let hit=0;
-    const bf=B.f;
-
-    for(const p of A.active){
-      const y=(p/SMALL)|0;
-      const x=p-y*SMALL;
-      const xx=x+dx, yy=y+dy;
-      if(xx<0||xx>=SMALL||yy<0||yy>=SMALL)continue;
-      if(bf[yy*SMALL+xx])hit++;
-    }
-    return hit/Math.sqrt(A.active.length*B.active.length);
-  }
-
-  function estimatePair(A,B){
-    const MAX=14;
-    const zero=shiftScore(A,B,0,0);
-    let best={dx:0,dy:0,score:zero};
-
-    for(let dy=-MAX;dy<=MAX;dy++){
-      for(let dx=-MAX;dx<=MAX;dx++){
-        const s=shiftScore(A,B,dx,dy)-0.00008*(Math.abs(dx)+Math.abs(dy));
-        if(s>best.score)best={dx,dy,score:s};
-      }
-    }
-    return {dx:best.dx,dy:best.dy,score:best.score,zero,gain:best.score-zero};
-  }
-
-  function median(values){
-    const a=values.slice().sort((x,y)=>x-y);
-    const m=Math.floor(a.length/2);
-    return a.length%2?a[m]:(a[m-1]+a[m])/2;
-  }
-
-  function dirName(deg){
-    const names=["N","NE","E","SE","S","SO","O","NO"];
-    return names[Math.round(deg/45)%8];
-  }
-
-  function pxMotionStats(dxPx10,dyPx10,quality){
-    const mpp=156543.03392*Math.cos(C[0]*Math.PI/180)/(2**ANALYSIS_Z);
-    const east=dxPx10*mpp, north=-dyPx10*mpp;
-    const dist10=Math.hypot(east,north);
-    const speedKmh=dist10*6/1000;
-    const bearing=(Math.atan2(east,north)*180/Math.PI+360)%360;
-    return {speedKmh,bearing,name:dirName(bearing),quality};
-  }
-
-  async function analyseMotion(){
-    setMotionUI("analisi in corso…");
-    const recent=past.slice(-(PAIRS_TO_USE+1));
-    const loaded=[];
-
-    try{
-      for(const f of recent){
-        const item=await loadImage(coordImageUrl(f));
-        loaded.push({...item,field:makeField(item.img),frame:f});
-      }
-
-      const pairs=[];
-      for(let i=1;i<loaded.length;i++){
-        const A=loaded[i-1],B=loaded[i];
-        if(A.field.active.length<25||B.field.active.length<25)continue;
-
-        const e=estimatePair(A.field,B.field);
-        const dtMin=Math.max(1,(B.frame.time-A.frame.time)/60);
-
-        // SMALL rappresenta CROP px originali.
-        const toOriginal=CROP/SMALL;
-        const norm=FUTURE_STEP_MIN/dtMin;
-        pairs.push({
-          dx:e.dx*toOriginal*norm,
-          dy:e.dy*toOriginal*norm,
-          score:e.score,
-          gain:e.gain
-        });
-      }
-
-      if(!pairs.length)throw new Error("echi locali insufficienti");
-
-      const dx=median(pairs.map(p=>p.dx));
-      const dy=median(pairs.map(p=>p.dy));
-      const score=pairs.reduce((s,p)=>s+p.score,0)/pairs.length;
-      const gain=pairs.reduce((s,p)=>s+p.gain,0)/pairs.length;
-
-      const quality=Math.max(0,Math.min(1,score*0.7+Math.max(0,gain)*3));
-      const stats=pxMotionStats(dx,dy,quality);
-
-      // Se lo spostamento è sotto la risoluzione utile, non diciamo più
-      // "alta affidabilità / 0 km/h": lo segnaliamo come non risolto.
-      const unresolved = stats.speedKmh < 4 || gain < 0.008;
-
-      if(unresolved){
-        motion={
-          dxPx10:0,dyPx10:0,speedKmh:0,bearing:0,name:"non risolto",
-          quality:Math.min(quality,.28),unresolved:true
-        };
-        setMotionUI(
-          "moto non risolto",
-          "incerto",
-          "< 4 km/h",
-          "bassa",
-          `Gli ultimi ${pairs.length+1} frame sono molto simili nel settore locale: non c'è uno spostamento abbastanza netto da proiettare con affidabilità. La v4.6 evita quindi di dichiarare falsamente “0 km/h, affidabilità alta”.`
-        );
-      }else{
-        motion={dxPx10:dx,dyPx10:dy,...stats,unresolved:false};
-        const conf=quality>=.58?"alta":quality>=.34?"media":"bassa";
-        setMotionUI(
-          "pronta",
-          `${stats.name} · ${Math.round(stats.bearing)}°`,
-          `${Math.round(stats.speedKmh)} km/h`,
-          conf,
-          `Stima locale da ${pairs.length+1} frame. Il FUTURO sposta l'intero ultimo layer radar; intensificazione o dissolvimento delle celle non sono previste da questa estrapolazione.`
-        );
-      }
-    }finally{
-      for(const x of loaded){try{URL.revokeObjectURL(x.objectURL)}catch(_){}}
-    }
-    return motion;
-  }
-
-  function removeObserved(){
-    if(observedLayer){try{map.removeLayer(observedLayer)}catch(_){} observedLayer=null}
-  }
-
-  function removeForecast(){
-    if(forecastLayer){try{map.removeLayer(forecastLayer)}catch(_){} forecastLayer=null}
-    forecastPane.style.marginLeft="0px";
-    forecastPane.style.marginTop="0px";
-  }
-
-  function showObserved(f){
-    removeForecast();
-    return new Promise(resolve=>{
-      const n=L.tileLayer(`${rvHost}${f.path}/256/{z}/{x}/{y}/2/1_1.png`,{
-        maxZoom:18,maxNativeZoom:7,opacity:0,keepBuffer:3,updateWhenZooming:false,updateWhenIdle:true
-      }).addTo(map);
-      let loaded=0,done=false;
-      const finish=ok=>{
-        if(done)return;done=true;
-        if(ok){
-          removeObserved(); observedLayer=n; n.setOpacity(.72);
-        }else{try{map.removeLayer(n)}catch(_){}}
-        resolve(ok);
-      };
-      n.on("tileload",()=>loaded++);
-      n.once("load",()=>finish(loaded>0));
-      setTimeout(()=>finish(loaded>0),6500);
-    });
-  }
-
-  function ensureForecastLayer(){
-    if(forecastLayer)return;
-    const last=past[past.length-1];
-    forecastLayer=L.tileLayer(`${rvHost}${last.path}/256/{z}/{x}/{y}/2/1_1.png`,{
-      pane:"forecastPane",
-      maxZoom:18,maxNativeZoom:7,opacity:.72,keepBuffer:5,
-      updateWhenZooming:false,updateWhenIdle:true
-    }).addTo(map);
-  }
-
-  function applyForecastShift(step){
-    ensureForecastLayer();
-    removeObserved();
-
-    if(!motion || motion.unresolved){
-      forecastPane.style.marginLeft="0px";
-      forecastPane.style.marginTop="0px";
-      return false;
-    }
-
-    const scale=2**(map.getZoom()-ANALYSIS_Z);
-    const pxX=motion.dxPx10*step*scale;
-    const pxY=motion.dyPx10*step*scale;
-
-    forecastPane.style.marginLeft=`${pxX}px`;
-    forecastPane.style.marginTop=`${pxY}px`;
-    return true;
-  }
-
-  async function show(n){
-    const token=++renderToken;
-    idx=Math.max(0,Math.min(frames.length-1,n));
-    $("timeline").value=idx;
-    const f=frames[idx];
-
-    if(f.kind==="forecast"){
-      $("badge").textContent="PREVISIONE";
-      $("badge").className="badge future";
-      $("clock").textContent=fmt(f.t);
-      $("source").textContent=`Nowcast Conte · +${f.step*10}m`;
-
-      const moved=applyForecastShift(f.step);
-
-      if(!motion){
-        status("warn","Nowcast non disponibile","La stima del movimento non è pronta.");
-        return false;
-      }
-
-      if(motion.unresolved){
-        status(
-          "warn",
-          "Movimento locale non risolto",
-          `+${f.step*10} min: mostro l'ultimo radar reale senza spostarlo, perché i frame recenti non danno un vettore locale abbastanza affidabile.`
-        );
-        return true;
-      }
-
-      status(
-        "ok",
-        "Estrapolazione caricata",
-        `+${f.step*10} min · intero layer radar spostato verso ${motion.name} a circa ${Math.round(motion.speedKmh)} km/h.`
-      );
-      return moved;
-    }
-
-    $("badge").textContent="OSSERVATO";
-    $("badge").className="badge";
-    $("clock").textContent=fmt(f.t);
-    $("source").textContent="RainViewer · radar";
-
-    status("","Caricamento radar",`Frame radar ${fmt(f.t)}…`);
-    const ok=await showObserved(f);
-    if(token!==renderToken)return false;
-    status(ok?"ok":"warn",ok?"Radar reale caricato":"Radar non disponibile",ok?`Osservazione radar delle ${fmt(f.t)}.`:"Il frame RainViewer non ha risposto.");
-    return ok;
-  }
+  async function show(n){const my=++token;idx=Math.max(0,Math.min(frames.length-1,n));$("timeline").value=idx;const f=frames[idx];if(f.kind==="forecast"){$("badge").textContent="PREVISIONE";$("badge").className="badge future";$("clock").textContent=fmt(f.t);$("source").textContent=`Cell Tracking · +${f.step*STEP}m`;if(!track){status("warn","Tracking non disponibile","Nessuna cella è stata agganciata in modo sufficiente.");return false}const ok=apply(f.step),cl=track.conf>=.68?"alta":track.conf>=.42?"media":"bassa";status(ok?"ok":"warn",ok?"Estrapolazione cella caricata":"Estrapolazione non disponibile",ok?`+${f.step*STEP} min · cella verso ${track.name} a circa ${Math.round(track.speed)} km/h · affidabilità ${cl}.`:"Impossibile spostare il layer futuro.");return ok}
+    $("badge").textContent="OSSERVATO";$("badge").className="badge";$("clock").textContent=fmt(f.t);$("source").textContent="RainViewer · radar";status("","Caricamento radar",`Frame radar ${fmt(f.t)}…`);const ok=await showObserved(f);if(my!==token)return false;status(ok?"ok":"warn",ok?"Radar reale caricato":"Radar non disponibile",ok?`Osservazione radar delle ${fmt(f.t)}.`:"Il frame RainViewer non ha risposto.");return ok}
 
   function stop(){playing=false;$("play").textContent="▶ Play"}
-
-  async function start(){
-    if(playing)return;
-    playing=true;$("play").textContent="⏸ Pausa";
-    while(playing){
-      const next=idx>=frames.length-1?0:idx+1;
-      await show(next);
-      if(!playing)break;
-      await new Promise(r=>setTimeout(r,frames[idx]?.kind==="forecast"?700:850));
-    }
-  }
-
-  $("play").onclick=()=>playing?stop():start();
-  $("prev").onclick=()=>{stop();show(idx-1)};
-  $("next").onclick=()=>{stop();show(idx+1)};
-  $("now").onclick=()=>{stop();show(nowIdx)};
-  $("timeline").oninput=e=>{stop();show(+e.target.value)};
-
-  map.on("zoomend",()=>{
-    if(frames[idx]?.kind==="forecast")applyForecastShift(frames[idx].step);
-  });
+  async function start(){if(playing)return;playing=true;$("play").textContent="⏸ Pausa";while(playing){await show(idx>=frames.length-1?0:idx+1);if(!playing)break;await new Promise(r=>setTimeout(r,frames[idx]?.kind==="forecast"?700:850))}}
+  $("play").onclick=()=>playing?stop():start();$("prev").onclick=()=>{stop();show(idx-1)};$("next").onclick=()=>{stop();show(idx+1)};$("now").onclick=()=>{stop();show(nowIdx)};$("timeline").oninput=e=>{stop();show(+e.target.value)};map.on("zoomend",()=>{const f=frames[idx];if(f?.kind==="forecast")apply(f.step)});
 
   try{
-    const r=await fetch(RV_MANIFEST,{cache:"no-store"});
-    if(!r.ok)throw new Error(`HTTP ${r.status}`);
-    const d=await r.json();
-    rvHost=d.host||"https://tilecache.rainviewer.com";
-
-    const raw=d.radar&&Array.isArray(d.radar.past)?d.radar.past:[];
-    if(!raw.length)throw new Error("nessun frame RainViewer");
-
-    past=raw.map(x=>({kind:"observed",t:x.time*1000,time:x.time,path:x.path}));
-    frames=past.map(x=>({...x}));
-    nowIdx=frames.length-1;
-
-    const base=frames[nowIdx].t;
-    for(let step=1;step<=FUTURE_STEPS;step++){
-      frames.push({kind:"forecast",step,t:base+step*FUTURE_STEP_MIN*60000});
-    }
-
-    $("timeline").max=frames.length-1;
-    idx=nowIdx;$("timeline").value=idx;
-    await show(idx);
-    setTimeout(()=>map.invalidateSize(),200);
-
-    try{
-      status("","Analisi movimento locale","Confronto gli ultimi frame vicino a Borgo Viazza…");
-      await analyseMotion();
-
-      if(motion.unresolved){
-        status(
-          "warn",
-          "Radar pronto · moto locale incerto",
-          "La copertura completa è pronta, ma in questo momento il piccolo eco locale non mostra uno spostamento abbastanza netto da proiettare in modo credibile."
-        );
-      }else{
-        status(
-          "ok",
-          "Nowcast Conte pronto",
-          `Moto locale ${motion.name}, circa ${Math.round(motion.speedKmh)} km/h. Prova +10/+20/+30 min e Play.`
-        );
-      }
-    }catch(e){
-      console.error(e);
-      motion=null;
-      setMotionUI("non disponibile","--","--","--",`Analisi non riuscita: ${e.message||e}.`);
-      status("warn","OSSERVATO OK · analisi fallita",`Il radar reale funziona, ma il moto locale non è stato calcolato: ${e.message||e}.`);
-    }
-  }catch(e){
-    console.error(e);
-    status("warn","Errore inizializzazione",`Non riesco ad avviare il radar: ${e.message||e}.`);
-  }
+    const r=await fetch(RV,{cache:"no-store"});if(!r.ok)throw Error(`HTTP ${r.status}`);const d=await r.json();host=d.host||"https://tilecache.rainviewer.com";const raw=d.radar&&Array.isArray(d.radar.past)?d.radar.past:[];if(!raw.length)throw Error("nessun frame RainViewer");past=raw.map(x=>({kind:"observed",t:x.time*1000,time:x.time,path:x.path}));frames=past.map(x=>({...x}));nowIdx=frames.length-1;const base=frames[nowIdx].t;for(let step=1;step<=FUTURE;step++)frames.push({kind:"forecast",step,t:base+step*STEP*60000});$("timeline").max=frames.length-1;idx=nowIdx;$("timeline").value=idx;await show(idx);setTimeout(()=>map.invalidateSize(),200);
+    try{status("","Cell tracking","Cerco e seguo una singola cella negli ultimi frame radar…");await trackCell();const cl=track.conf>=.68?"alta":track.conf>=.42?"media":"bassa";status("ok","Cella agganciata",`Tracking pronto: ${track.pts.length} frame · ${track.name} · ${Math.round(track.speed)} km/h · affidabilità ${cl}. Prova +10/+20/+30 min.`)}catch(e){console.error(e);track=null;motionUI("nessuna cella agganciata","--","--","--",`Tracking non riuscito: ${e.message||e}. L'OSSERVATO continua a funzionare normalmente.`);status("warn","OSSERVATO OK · tracking non riuscito",`${e.message||e}. Serve una cella sufficientemente riconoscibile vicino alla zona.`)}
+  }catch(e){console.error(e);status("warn","Errore inizializzazione",`Non riesco ad avviare il radar: ${e.message||e}.`)}
 });

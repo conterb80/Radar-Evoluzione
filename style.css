@@ -18,3 +18,5 @@ h1{font-size:28px;margin:5px 0 3px}.sub{margin:0 0 12px;color:var(--muted)}butto
 .borgo{background:#07111ee8!important;color:#fff!important;border:1px solid #58c7ff!important;border-radius:8px!important;padding:3px 7px!important;box-shadow:none!important}.borgo:before{display:none!important}
 .leaflet-control-attribution{font-size:9px!important}.credits{font-size:11px;color:#71849a;text-align:center;margin:12px 0 2px}
 @media(max-width:400px){.app{padding:10px}h1{font-size:25px}.controls{grid-template-columns:44px 1fr 44px 74px;gap:5px}.controls button{font-size:13px}.motion-grid{gap:5px}.motion-grid>div{padding:7px}.motion-grid b{font-size:13px}}
+
+.cell-tag{background:#07111ef2!important;color:#fff!important;border:1px solid #ffcf4d!important;border-radius:8px!important;padding:2px 6px!important;box-shadow:none!important}.cell-tag:before{display:none!important}

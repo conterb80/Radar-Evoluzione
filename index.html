@@ -4,18 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#06101d">
-  <title>Meteo Conte · Evoluzione v4.6</title>
+  <title>Meteo Conte · Evoluzione v4.7</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=460">
+  <link rel="stylesheet" href="style.css?v=470">
 </head>
 <body>
   <main class="app">
-    <div class="eyebrow">METEO CONTE · RADAR EVOLUZIONE V4.6 · NOWCAST LOCALE</div>
+    <div class="eyebrow">METEO CONTE · RADAR EVOLUZIONE V4.7 · CELL TRACKING</div>
     <h1>Evoluzione animata</h1>
     <p class="sub">Radar reale → adesso → estrapolazione locale 0–90 min</p>
 
     <section class="source-note">
-      <div><strong>NOWCAST CONTE</strong><span>test locale v4.6</span></div>
+      <div><strong>NOWCAST CONTE</strong><span>Cell Tracking v4.7</span></div>
       <small>
         Correzione della v4.5: nel FUTURO viene spostato l'intero ultimo layer RainViewer,
         non una sola immagine ritagliata. La stima del moto usa soprattutto il settore
@@ -46,7 +46,7 @@
 
     <section class="motion">
       <div class="motion-title">
-        <strong>STIMA MOVIMENTO LOCALE</strong>
+        <strong>CELLA SEGUITA</strong>
         <span id="motionState">analisi in corso…</span>
       </div>
       <div class="motion-grid">
@@ -54,7 +54,7 @@
         <div><span>Velocità</span><b id="motionSpeed">--</b></div>
         <div><span>Affidabilità</span><b id="motionConf">--</b></div>
       </div>
-      <small id="motionNote">Confronto degli ultimi frame nel settore vicino a Borgo Viazza.</small>
+      <small id="motionNote">Cerco una cella precipitante nel settore attorno a Borgo Viazza.</small>
     </section>
 
     <section class="info">
@@ -66,6 +66,6 @@
   </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js?v=460"></script>
+  <script src="app.js?v=470"></script>
 </body>
 </html>

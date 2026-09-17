@@ -1,14 +1,16 @@
-# Radar Evoluzione v4.6 — Nowcast Conte locale
+# Radar Evoluzione v4.7 — Cell Tracking Test
 
-Correzioni principali rispetto alla v4.5:
+Questa versione cambia il metodo di stima del moto.
 
-- il FUTURO usa l'intero layer RainViewer dell'ultimo frame, quindi non deve più sparire la parte superiore della mappa;
-- il movimento viene stimato soprattutto nel settore vicino a Borgo Viazza, riducendo l'influenza dei sistemi lontani;
-- se il movimento è troppo piccolo/ambiguo, l'app NON scrive più “0 km/h, affidabilità alta”: segnala invece “moto non risolto”.
+1. Scarica gli ultimi frame RainViewer centrati su Borgo Viazza.
+2. Separa gli echi precipitanti in singoli oggetti.
+3. Sceglie la cella significativa più vicina alla zona.
+4. La segue all'indietro negli ultimi frame.
+5. Calcola direzione e velocità dal baricentro della cella.
+6. Usa questa traiettoria per +10, +20, ... +90 minuti.
+
+Sulla mappa compare un indicatore giallo "cella seguita".
 
 ## Test
-1. Carica la v4.6.
-2. Attendi la STIMA MOVIMENTO LOCALE.
-3. Se compare “pronta”, prova +10, +20, +30 e Play.
-4. Se compare “moto non risolto”, controlla comunque che entrando nel FUTURO non sparisca più la parte nord della mappa.
-5. Mandami uno screenshot di ADESSO e uno di +20/+30.
+Attendi "Cella agganciata", controlla direzione/velocità/affidabilità, poi prova +20 e +30 min e Play.
+Se compare "nessuna cella agganciata", mandami lo screenshot del messaggio.
