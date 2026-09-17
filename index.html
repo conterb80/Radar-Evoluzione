@@ -4,68 +4,113 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#06101d">
-  <title>Meteo Conte · Evoluzione v4.8</title>
+  <title>Meteo Conte · Radar Evoluzione v5.0</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=480">
+  <link rel="stylesheet" href="style.css?v=500">
 </head>
 <body>
   <main class="app">
-    <div class="eyebrow">METEO CONTE · RADAR EVOLUZIONE V4.8 · TRACKING MEMORY</div>
-    <h1>Evoluzione animata</h1>
-    <p class="sub">Radar reale → adesso → estrapolazione locale 0–90 min</p>
+    <div class="eyebrow">METEO CONTE · RADAR EVOLUZIONE V5.0 · FINAL CANDIDATE</div>
+    <h1>Radar Evoluzione</h1>
+    <p class="sub">Radar osservato reale + evoluzione prevista interattiva</p>
 
-    <section class="source-note">
-      <div><strong>NOWCAST CONTE</strong><span>Tracking Memory v4.8</span></div>
-      <small>
-        Correzione della v4.5: nel FUTURO viene spostato l'intero ultimo layer RainViewer,
-        non una sola immagine ritagliata. La stima del moto usa soprattutto il settore
-        attorno a Borgo Viazza, riducendo il peso dei sistemi lontani sulle Alpi.
-      </small>
+    <nav class="tabs" aria-label="Sezioni radar">
+      <button id="tabObserved" class="tab active" type="button">📡 OSSERVATO</button>
+      <button id="tabEvolution" class="tab" type="button">🌧️ EVOLUZIONE</button>
+    </nav>
+
+    <section id="observedPanel">
+      <section class="source-note">
+        <div><strong>RADAR REALE</strong><span>RainViewer</span></div>
+        <small>
+          Ultimi frame radar osservati. Questa è la parte che mostra cosa sta realmente
+          succedendo, centrata su Borgo Viazza.
+        </small>
+      </section>
+
+      <section class="card">
+        <div class="head">
+          <span class="badge">OSSERVATO</span>
+          <strong id="clock">--:--</strong>
+          <span id="source">RainViewer · radar</span>
+        </div>
+
+        <div id="map"></div>
+
+        <div class="phase">
+          <span>PASSATO</span>
+          <b>● ADESSO</b>
+        </div>
+
+        <input id="timeline" type="range" min="0" max="0" value="0">
+        <div class="ticks"><span>-2h</span><span>adesso</span></div>
+
+        <div class="controls">
+          <button id="prev" type="button">◀</button>
+          <button id="play" class="play" type="button">▶ Play</button>
+          <button id="next" type="button">▶</button>
+          <button id="now" type="button">Adesso</button>
+        </div>
+      </section>
+
+      <section class="info">
+        <div><span id="led" class="led"></span><strong id="statusTitle">Avvio</strong></div>
+        <p id="status">Caricamento radar reale…</p>
+      </section>
     </section>
 
-    <section class="card">
-      <div class="head">
-        <span id="badge" class="badge">OSSERVATO</span>
-        <strong id="clock">--:--</strong>
-        <span id="source">RainViewer</span>
-      </div>
+    <section id="evolutionPanel" hidden>
+      <section class="source-note evolution-note">
+        <div><strong>EVOLUZIONE PREVISTA</strong><span>Windy · Rain, snow</span></div>
+        <small>
+          Mappa previsionale interattiva ufficialmente incorporabile di Windy.
+          Non è un “radar futuro”: mostra l'evoluzione modellistica della precipitazione.
+          Usa la timeline Windy per scorrere le prossime ore.
+        </small>
+      </section>
 
-      <div id="map"></div>
+      <section class="windy-card">
+        <div class="windy-head">
+          <div>
+            <strong>Precipitazioni previste</strong>
+            <span>Borgo Viazza · area Romagna</span>
+          </div>
+          <button id="reloadWindy" type="button">↻ Ricarica</button>
+        </div>
 
-      <div class="phase"><span>PASSATO</span><b>● ADESSO</b><span>FUTURO</span></div>
-      <input id="timeline" type="range" min="0" max="0" value="0">
-      <div class="ticks"><span>-2h</span><span>adesso</span><span>+90 min</span></div>
+        <div class="iframe-wrap">
+          <iframe
+            id="windyFrame"
+            title="Evoluzione prevista Windy"
+            loading="lazy"
+            referrerpolicy="no-referrer-when-downgrade"
+            allow="fullscreen">
+          </iframe>
+        </div>
 
-      <div class="controls">
-        <button id="prev">◀</button>
-        <button id="play" class="play">▶ Play</button>
-        <button id="next">▶</button>
-        <button id="now">Adesso</button>
-      </div>
+        <div class="windy-footer">
+          <span>Muovi la timeline direttamente dentro la mappa.</span>
+          <a id="openWindy" href="https://www.windy.com/?rain,44.45,12.02,8" target="_blank" rel="noopener">
+            Apri Windy completo ↗
+          </a>
+        </div>
+      </section>
+
+      <section class="info">
+        <div><span class="led ok"></span><strong>Configurazione finale</strong></div>
+        <p>
+          OSSERVATO = RainViewer. EVOLUZIONE = Windy Rain/Snow.
+          Nessuna API key Tomorrow.io, nessun nostro algoritmo di previsione.
+        </p>
+      </section>
     </section>
 
-    <section class="motion">
-      <div class="motion-title">
-        <strong>CELLA SEGUITA</strong>
-        <span id="motionState">analisi in corso…</span>
-      </div>
-      <div class="motion-grid">
-        <div><span>Direzione</span><b id="motionDir">--</b></div>
-        <div><span>Velocità</span><b id="motionSpeed">--</b></div>
-        <div><span>Affidabilità</span><b id="motionConf">--</b></div>
-      </div>
-      <small id="motionNote">Cerco una cella precipitante nel settore attorno a Borgo Viazza.</small>
-    </section>
-
-    <section class="info">
-      <div><span id="led" class="led"></span><strong id="statusTitle">Avvio</strong></div>
-      <p id="status">Caricamento radar reale…</p>
-    </section>
-
-    <p class="credits">Radar data by RainViewer. Base map © OpenStreetMap.</p>
+    <p class="credits">
+      Radar data by RainViewer · Windy embedded map · Base map © OpenStreetMap.
+    </p>
   </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js?v=480"></script>
+  <script src="app.js?v=500"></script>
 </body>
 </html>

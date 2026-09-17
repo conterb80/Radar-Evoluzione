@@ -1,24 +1,33 @@
-# Radar Evoluzione v4.8 — Tracking Memory Fallback
+# Radar Evoluzione v5.0 — Final Candidate
 
-Correzione mirata della v4.7.
+Questa versione elimina tutti i tentativi di calcolare internamente il FUTURO.
 
-## Problema risolto
-Nella v4.7, se al nuovo avvio la cella veniva seguita solo in 1-2 frame, il tracking live falliva ma la timeline FUTURO restava selezionabile. La mappa rimaneva quindi apparentemente "bloccata".
+## Architettura finale proposta
 
-## Nuova logica
-- Se il tracking LIVE riesce:
-  - viene usato normalmente;
-  - l'ultimo tracking valido viene salvato nel browser.
-- Se il tracking LIVE fallisce:
-  - l'app prova a recuperare l'ultimo tracking valido;
-  - lo usa come fallback per massimo 60 minuti;
-  - mostra chiaramente "ultimo tracking valido" / "Tracking salvato";
-  - l'affidabilità viene degradata con il passare del tempo.
-- Se non esiste un tracking valido recente:
-  - il FUTURO viene realmente bloccato alla posizione ADESSO.
+### OSSERVATO
+- RainViewer
+- radar reale
+- ultimi frame fino ad ADESSO
+- Play / frecce / timeline
+- centrato su Borgo Viazza
 
-## Test consigliato
-Il caso ideale è proprio quello visto stamattina:
-1. una cella viene agganciata correttamente;
-2. dopo 20-40 minuti il nuovo tracking live fallisce;
-3. la v4.8 deve mostrare "ultimo tracking valido" e continuare il FUTURO con quella traiettoria.
+### EVOLUZIONE
+- Windy Embed ufficiale
+- layer "Rain, snow"
+- mappa interattiva e timeline Windy
+- nessuna API key
+- nessun algoritmo proprietario di nowcasting
+- nessun limite Tomorrow.io
+
+## Importante
+EVOLUZIONE è una previsione modellistica delle precipitazioni, non un radar futuro.
+
+## Test richiesto
+1. Verificare che OSSERVATO continui a funzionare.
+2. Toccare EVOLUZIONE.
+3. Verificare che la mappa Windy compaia direttamente dentro Radar Evoluzione.
+4. Muovere la timeline Windy.
+5. Controllare usabilità su smartphone.
+6. Se l'iframe non dovesse caricarsi, usare il link "Apri Windy completo" e segnalarlo.
+
+Se questo test è positivo, questa struttura è pronta per essere trasferita dentro Meteo Conte.
