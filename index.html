@@ -1,116 +1,54 @@
 <!doctype html>
 <html lang="it">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#06101d">
-  <title>Meteo Conte · Radar Evoluzione v5.0</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=500">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07131f">
+<title>Radar Evoluzione · ARPAE Nowcast v6</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="style.css?v=600">
 </head>
 <body>
-  <main class="app">
-    <div class="eyebrow">METEO CONTE · RADAR EVOLUZIONE V5.0 · FINAL CANDIDATE</div>
+<main class="app">
+  <header>
+    <div class="eyebrow">METEO CONTE · RADAR EVOLUZIONE V6</div>
     <h1>Radar Evoluzione</h1>
-    <p class="sub">Radar osservato reale + evoluzione prevista interattiva</p>
+    <p>Nowcasting reale ARPAE · Emilia-Romagna</p>
+  </header>
 
-    <nav class="tabs" aria-label="Sezioni radar">
-      <button id="tabObserved" class="tab active" type="button">📡 OSSERVATO</button>
-      <button id="tabEvolution" class="tab" type="button">🌧️ EVOLUZIONE</button>
-    </nav>
+  <nav class="tabs">
+    <button id="evoBtn" class="active">🌧️ EVOLUZIONE FUTURA</button>
+    <button id="obsBtn">📡 OSSERVATO</button>
+  </nav>
 
-    <section id="observedPanel">
-      <section class="source-note">
-        <div><strong>RADAR REALE</strong><span>RainViewer</span></div>
-        <small>
-          Ultimi frame radar osservati. Questa è la parte che mostra cosa sta realmente
-          succedendo, centrata su Borgo Viazza.
-        </small>
-      </section>
+  <section id="evo">
+    <div class="status future"><b>ADESSO → +1h → +2h → +3h</b><span>prodotto ufficiale ARPAE</span></div>
+    <div class="framebox">
+      <iframe id="arpaeFrame" title="Nowcasting ARPAE"
+        src="https://apps.arpae.it/widgets/meteo-radar-nowcasting/"
+        loading="eager" referrerpolicy="no-referrer-when-downgrade"></iframe>
+    </div>
+    <div class="note">
+      <b>Come leggerlo</b>
+      <span>Giallo = +1h · Arancione = +2h · Rosso = +3h. Se la previsione resta stazionaria le linee possono sovrapporsi.</span>
+    </div>
+    <div class="actions">
+      <button id="reload">↻ Aggiorna</button>
+      <a href="https://allertameteo.regione.emilia-romagna.it/nowcasting-evoluzione-degli-echi-radar" target="_blank" rel="noopener">ARPAE completo ↗</a>
+    </div>
+  </section>
 
-      <section class="card">
-        <div class="head">
-          <span class="badge">OSSERVATO</span>
-          <strong id="clock">--:--</strong>
-          <span id="source">RainViewer · radar</span>
-        </div>
+  <section id="obs" hidden>
+    <div class="status observed"><b>RADAR OSSERVATO</b><span>RainViewer · ultime ~2 ore</span></div>
+    <div id="rvStatus" class="rvstatus">Caricamento radar…</div>
+    <div class="framebox">
+      <iframe id="rvFrame" title="Radar osservato RainViewer"
+        src="https://www.rainviewer.com/map.html?loc=44.45,12.02,7&oFa=1&oC=1&oU=0&oCS=1&oF=0&oAP=1&c=3&o=83&lm=1&layer=radar&sm=1&sn=1"
+        loading="lazy"></iframe>
+    </div>
+  </section>
 
-        <div id="map"></div>
-
-        <div class="phase">
-          <span>PASSATO</span>
-          <b>● ADESSO</b>
-        </div>
-
-        <input id="timeline" type="range" min="0" max="0" value="0">
-        <div class="ticks"><span>-2h</span><span>adesso</span></div>
-
-        <div class="controls">
-          <button id="prev" type="button">◀</button>
-          <button id="play" class="play" type="button">▶ Play</button>
-          <button id="next" type="button">▶</button>
-          <button id="now" type="button">Adesso</button>
-        </div>
-      </section>
-
-      <section class="info">
-        <div><span id="led" class="led"></span><strong id="statusTitle">Avvio</strong></div>
-        <p id="status">Caricamento radar reale…</p>
-      </section>
-    </section>
-
-    <section id="evolutionPanel" hidden>
-      <section class="source-note evolution-note">
-        <div><strong>EVOLUZIONE PREVISTA</strong><span>Windy · Rain, snow</span></div>
-        <small>
-          Mappa previsionale interattiva ufficialmente incorporabile di Windy.
-          Non è un “radar futuro”: mostra l'evoluzione modellistica della precipitazione.
-          Usa la timeline Windy per scorrere le prossime ore.
-        </small>
-      </section>
-
-      <section class="windy-card">
-        <div class="windy-head">
-          <div>
-            <strong>Precipitazioni previste</strong>
-            <span>Borgo Viazza · area Romagna</span>
-          </div>
-          <button id="reloadWindy" type="button">↻ Ricarica</button>
-        </div>
-
-        <div class="iframe-wrap">
-          <iframe
-            id="windyFrame"
-            title="Evoluzione prevista Windy"
-            loading="lazy"
-            referrerpolicy="no-referrer-when-downgrade"
-            allow="fullscreen">
-          </iframe>
-        </div>
-
-        <div class="windy-footer">
-          <span>Muovi la timeline direttamente dentro la mappa.</span>
-          <a id="openWindy" href="https://www.windy.com/?rain,44.45,12.02,8" target="_blank" rel="noopener">
-            Apri Windy completo ↗
-          </a>
-        </div>
-      </section>
-
-      <section class="info">
-        <div><span class="led ok"></span><strong>Configurazione finale</strong></div>
-        <p>
-          OSSERVATO = RainViewer. EVOLUZIONE = Windy Rain/Snow.
-          Nessuna API key Tomorrow.io, nessun nostro algoritmo di previsione.
-        </p>
-      </section>
-    </section>
-
-    <p class="credits">
-      Radar data by RainViewer · Windy embedded map · Base map © OpenStreetMap.
-    </p>
-  </main>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js?v=500"></script>
-</body>
-</html>
+  <footer>V6 · nessuna API key · nessun abbonamento · futuro ARPAE +3h</footer>
+</main>
+<script src="app.js?v=600"></script>
+</body></html>

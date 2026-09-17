@@ -1,0 +1,9 @@
+{
+  "name": "Radar Evoluzione Conte",
+  "short_name": "Radar Evoluzione",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#07131f",
+  "theme_color": "#07131f",
+  "description": "Radar osservato e nowcasting ARPAE fino a +3 ore"
+}
